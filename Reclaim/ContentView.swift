@@ -9,8 +9,11 @@ struct ContentView: View {
     @State private var expandedItem: String?
     @State private var confirmingCleanup = false
     @State private var showingResults = false
+    @AppStorage("showSmallItems") private var showSmallItems = false
 
-    var filteredItems: [ScanItem] {
+    static let smallItemThreshold: Int64 = 10_000_000 // 10 MB
+
+    var matchingItems: [ScanItem] {
         model.items.filter { item in
             (categoryFilter == nil || item.category == categoryFilter)
                 && (safetyFilter == nil || item.safety == safetyFilter)
@@ -20,12 +23,30 @@ struct ContentView: View {
         }
     }
 
+    /// Items below the threshold are noise; stale registrations stay visible
+    /// because they are zero bytes by nature but real repo hygiene.
+    var filteredItems: [ScanItem] {
+        guard !showSmallItems else { return matchingItems }
+        return matchingItems.filter { item in
+            item.worktree?.isPrunable == true
+                || item.sizeBytes == nil
+                || item.sizeBytes! >= Self.smallItemThreshold
+        }
+    }
+
+    var hiddenSmallCount: Int { matchingItems.count - filteredItems.count }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(spacing: 18) {
-                    HeroCard()
-                    if !model.items.isEmpty {
+            if model.items.isEmpty && !model.isScanning {
+                HeroCard()
+                    .frame(maxWidth: 560)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 18) {
+                        HeroCard()
                         CategoryChips(selection: $categoryFilter)
                         SafetyChips(selection: $safetyFilter)
                         ItemCardList(items: filteredItems, expandedItem: $expandedItem,
@@ -33,10 +54,18 @@ struct ContentView: View {
                                          model.selection = [item.id]
                                          confirmingCleanup = true
                                      })
+                        if hiddenSmallCount > 0 || showSmallItems {
+                            HoverTextButton(title: showSmallItems
+                                            ? "Hide small items"
+                                            : "Show \(hiddenSmallCount) small item\(hiddenSmallCount == 1 ? "" : "s") under 10 MB") {
+                                showSmallItems.toggle()
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
                     }
+                    .padding(20)
+                    .padding(.bottom, 72)
                 }
-                .padding(20)
-                .padding(.bottom, 72)
             }
             SelectionBar(onClean: { confirmingCleanup = true })
         }
@@ -94,11 +123,11 @@ struct HeroCard: View {
     var body: some View {
         Group {
             if model.items.isEmpty && !model.isScanning {
-                VStack(spacing: 10) {
+                VStack(spacing: 14) {
                     PixelSpriteView(palette: .blue)
-                        .frame(width: 72, height: 48)
+                        .frame(width: 96, height: 64)
                     Text("Find your lost gigabytes")
-                        .font(.title2.weight(.semibold))
+                        .font(.title.weight(.semibold))
                     Text("Worktrees, node_modules, caches, and AI agent leftovers.\nNothing is deleted without asking you first.")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
@@ -106,9 +135,10 @@ struct HeroCard: View {
                         .buttonStyle(.glassProminent)
                         .controlSize(.large)
                         .pointerStyle(.link)
+                        .padding(.top, 6)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 48)
             } else {
                 HStack(spacing: 18) {
                     ReclaimGauge(safe: model.safeBytes, total: model.totalBytes, isScanning: model.isScanning)
