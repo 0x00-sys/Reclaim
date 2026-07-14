@@ -53,8 +53,12 @@ struct ContentView: View {
             ToolbarItemGroup {
                 if model.isScanning {
                     Button("Stop", systemImage: "stop.circle") { model.cancelScan() }
+                        .help("Stop the current scan")
+                        .pointerStyle(.link)
                 } else {
                     Button("Scan", systemImage: "arrow.clockwise") { model.scan() }
+                        .help("Scan for reclaimable development storage")
+                        .pointerStyle(.link)
                 }
             }
         }
@@ -137,20 +141,11 @@ struct HeroCard: View {
 
                     Spacer()
 
-                    VStack(alignment: .trailing, spacing: 6) {
-                        if model.isScanning {
-                            Button("Stop", systemImage: "stop.fill") { model.cancelScan() }
-                                .buttonStyle(.glass)
-                                .pointerStyle(.link)
-                            Text(model.scanProgress)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .contentTransition(.opacity)
-                        } else {
-                            Button("Scan Again", systemImage: "arrow.clockwise") { model.scan() }
-                                .buttonStyle(.glassProminent)
-                                .pointerStyle(.link)
-                        }
+                    if model.isScanning {
+                        Text(model.scanProgress)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.opacity)
                     }
                 }
             }
@@ -419,37 +414,109 @@ struct ToolIconView: View {
     }
 }
 
-/// Compact brand-colored badge for tools that don't ship a .app bundle (git, npm, pnpm…).
+/// Faithful vector recreations of the real logos for tools that don't ship a
+/// .app bundle we could borrow an icon from.
 struct BrandBadge: View {
     let tool: Tool
     let category: StorageCategory
 
-    private var style: (color: Color, symbol: String?, text: String?) {
-        switch tool {
-        case .git: (Color(red: 0.94, green: 0.32, blue: 0.2), "arrow.triangle.branch", nil)
-        case .npm: (Color(red: 0.8, green: 0.2, blue: 0.2), nil, "npm")
-        case .pnpm: (Color(red: 0.97, green: 0.68, blue: 0.14), nil, "p")
-        case .claudeCode: (Color(red: 0.85, green: 0.47, blue: 0.34), "asterisk", nil)
-        case .codex: (Color(white: 0.12), "circle.hexagongrid", nil)
-        case .conductor: (Color(red: 0.95, green: 0.55, blue: 0.25), "train.side.front.car", nil)
-        default: (Color.gray, category.systemImage, nil)
-        }
-    }
-
     var body: some View {
-        RoundedRectangle(cornerRadius: 6)
-            .fill(style.color.gradient)
-            .overlay {
-                if let symbol = style.symbol {
-                    Image(systemName: symbol)
+        switch tool {
+        case .git: GitLogo()
+        case .npm: NpmLogo()
+        case .pnpm: PnpmLogo()
+        case .claudeCode:
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(red: 0.85, green: 0.47, blue: 0.34).gradient)
+                .overlay {
+                    Image(systemName: "asterisk")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
-                } else if let text = style.text {
-                    Text(text)
-                        .font(.system(size: text.count > 1 ? 7 : 11, weight: .heavy, design: .rounded))
+                }
+        default:
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.gray.gradient)
+                .overlay {
+                    Image(systemName: category.systemImage)
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
                 }
+        }
+    }
+}
+
+/// Git's rotated orange diamond with the commit/branch diagram.
+struct GitLogo: View {
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let brand = Color(red: 0.94, green: 0.32, blue: 0.20)
+            var diamond = Path(roundedRect: CGRect(x: w * 0.15, y: w * 0.15, width: w * 0.7, height: w * 0.7),
+                               cornerRadius: w * 0.12)
+            diamond = diamond.applying(
+                CGAffineTransform(translationX: w / 2, y: w / 2)
+                    .rotated(by: .pi / 4)
+                    .translatedBy(x: -w / 2, y: -w / 2)
+            )
+            context.fill(diamond, with: .color(brand))
+
+            var line = Path()
+            line.move(to: CGPoint(x: w * 0.38, y: w * 0.30))
+            line.addLine(to: CGPoint(x: w * 0.38, y: w * 0.70))
+            line.move(to: CGPoint(x: w * 0.40, y: w * 0.33))
+            line.addLine(to: CGPoint(x: w * 0.62, y: w * 0.52))
+            context.stroke(line, with: .color(.white), lineWidth: w * 0.07)
+
+            for center in [CGPoint(x: w * 0.38, y: w * 0.30),
+                           CGPoint(x: w * 0.38, y: w * 0.70),
+                           CGPoint(x: w * 0.64, y: w * 0.54)] {
+                let dot = Path(ellipseIn: CGRect(x: center.x - w * 0.075, y: center.y - w * 0.075,
+                                                 width: w * 0.15, height: w * 0.15))
+                context.fill(dot, with: .color(.white))
             }
+        }
+    }
+}
+
+/// npm's red square with the white wordmark.
+struct NpmLogo: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color(red: 0.76, green: 0.18, blue: 0.16))
+            .overlay {
+                Text("npm")
+                    .font(.system(size: 8, weight: .bold))
+                    .kerning(-0.4)
+                    .foregroundStyle(.white)
+            }
+    }
+}
+
+/// pnpm's three-by-three block mark.
+struct PnpmLogo: View {
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let cell = w * 0.26
+            let gap = w * 0.05
+            let origin = (w - cell * 3 - gap * 2) / 2
+            let orange = Color(red: 0.97, green: 0.68, blue: 0.14)
+            let dark = Color(white: 0.35)
+            // (column, row): top row all orange, right column orange; the rest dark.
+            let cells: [(Int, Int, Color)] = [
+                (0, 0, orange), (1, 0, orange), (2, 0, orange),
+                (2, 1, orange), (1, 1, dark),
+                (1, 2, dark), (2, 2, dark),
+            ]
+            for (col, row, color) in cells {
+                let rect = CGRect(
+                    x: origin + CGFloat(col) * (cell + gap),
+                    y: origin + CGFloat(row) * (cell + gap),
+                    width: cell, height: cell
+                )
+                context.fill(Path(rect), with: .color(color))
+            }
+        }
     }
 }
 
@@ -524,7 +591,7 @@ struct ItemDetail: View {
                 .pointerStyle(.link)
 
                 Menu {
-                    ForEach(Tool.allCases.filter { ToolIntegration.supportsPromptURL($0) }) { tool in
+                    ForEach(Tool.allCases.filter { ToolIntegration.isInstalled($0) }) { tool in
                         Button {
                             let prompt = ToolIntegration.inspectionPrompt(for: item)
                             if let url = ToolIntegration.promptURL(tool: tool, prompt: prompt, path: item.worktree?.repositoryPath ?? item.path) {

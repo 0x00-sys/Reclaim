@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// Deep links for opening an AI tool with a prefilled prompt.
 /// Every scheme here is documented by the tool's vendor:
@@ -13,6 +14,23 @@ public enum ToolIntegration {
         case .codex, .claudeCode, .conductor, .cursor: true
         default: false
         }
+    }
+
+    /// True when something on this Mac actually handles the tool's URL scheme.
+    /// Tools that aren't installed shouldn't be offered in the UI.
+    @MainActor private static var installedCache: [Tool: Bool] = [:]
+
+    @MainActor public static func isInstalled(_ tool: Tool) -> Bool {
+        if let cached = installedCache[tool] { return cached }
+        guard supportsPromptURL(tool),
+              let url = promptURL(tool: tool, prompt: "x")
+        else {
+            installedCache[tool] = false
+            return false
+        }
+        let installed = NSWorkspace.shared.urlForApplication(toOpen: url) != nil
+        installedCache[tool] = installed
+        return installed
     }
 
     public static func promptURL(tool: Tool, prompt: String, path: String? = nil) -> URL? {
