@@ -270,6 +270,7 @@ struct Chip: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .glassEffect(isSelected ? .regular.tint(tint.opacity(0.55)).interactive() : .regular.interactive(),
