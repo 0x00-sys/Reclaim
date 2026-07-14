@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Build Release app
+        run: |
+          xcodebuild -project Reclaim.xcodeproj -scheme Reclaim -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -5
+      - name: Zip app
+        id: zip
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ditto -c -k --keepParent "build/Build/Products/Release/Reclaim.app" "Reclaim-$VERSION.zip"
+          echo "asset=Reclaim-$VERSION.zip" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "Reclaim-$VERSION.zip"
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.zip.outputs.asset }}
+          generate_release_notes: true
+      - name: Print cask checksum
+        run: |
+          echo "Update homebrew-tap/Casks/reclaim.rb with:"
+          echo "  version \"${GITHUB_REF_NAME#v}\""
+          shasum -a 256 ${{ steps.zip.outputs.asset }} | awk '{print "  sha256 \"" $1 "\""}'

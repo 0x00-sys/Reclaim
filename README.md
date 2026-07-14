@@ -39,7 +39,10 @@ cd Reclaim
 open Reclaim.xcodeproj
 ```
 
-Requires macOS 26 and Xcode 26. Homebrew tap planned.
+Requires macOS 26 and Xcode 26. Homebrew is on the way: tagging a release
+builds and publishes the app automatically, and the cask template lives in
+`packaging/reclaim.rb`, so `brew install <owner>/tap/reclaim` will work as
+soon as the tap repo is up.
 
 ## Under the hood
 
