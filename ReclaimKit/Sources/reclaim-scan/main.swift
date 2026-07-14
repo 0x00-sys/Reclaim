@@ -12,14 +12,8 @@ let context = ScanContext(
     processes: await ProcessSnapshot.capture(),
     projectRoots: roots.map { URL(filePath: $0) }
 )
-let scanners: [any StorageScanner] = [
-    CodexScanner(), ConductorScanner(), RepoWorktreeScanner(),
-    NodeModulesScanner(), PackageCacheScanner(), DevCacheScanner(), XcodeScanner(),
-    ClaudeCodeScanner(), CursorScanner(),
-]
-
 var items: [ScanItem] = []
-for scanner in scanners {
+for (scanner, _) in defaultScanners {
     do {
         let found = try await scanner.scan(context: context)
         items.append(contentsOf: found)
@@ -38,9 +32,8 @@ if measureSizes {
     items.sort { ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }
 }
 
-let formatter = ByteCountFormatter()
 for item in items {
-    let size = item.sizeBytes.map { formatter.string(fromByteCount: $0) } ?? "?"
+    let size = item.sizeBytes.map { $0.formattedBytes } ?? "?"
     var line = "[\(item.safety.rawValue)] \(item.tool.rawValue) · \(item.category.rawValue) · \(item.displayName) · \(size)"
     if let worktree = item.worktree {
         line += " · branch=\(worktree.branch ?? "detached") registered=\(worktree.isRegistered)"

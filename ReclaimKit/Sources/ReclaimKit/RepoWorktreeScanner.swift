@@ -12,7 +12,7 @@ public struct RepoWorktreeScanner: StorageScanner {
 
     public func scan(context: ScanContext) async throws -> [ScanItem] {
         var repos: [URL] = []
-        for root in context.projectRoots where context.fileManager.directoryExists(root) {
+        for root in context.projectRoots where FileManager.default.directoryExists(root) {
             findRepos(root, depth: 0, into: &repos)
         }
 
@@ -21,23 +21,21 @@ public struct RepoWorktreeScanner: StorageScanner {
         var seen: Set<String> = []
         for repo in repos {
             try Task.checkCancellation()
-            var entries = (try? await context.git.listWorktrees(repository: repo.path)) ?? []
-            if !entries.isEmpty { entries.removeFirst() } // first entry is the main worktree
+            let registered = (try? await context.git.listWorktrees(repository: repo.path)) ?? []
+            var entries = registered.filter { !$0.isMain }
             // Claude Code puts per-project worktrees in <repo>/.claude/worktrees;
             // include any that lost their registration (orphans) too.
-            let claudeWorktrees = context.fileManager.contentsOfDirectoryIfPresent(
-                repo.appendingPathComponent(".claude/worktrees"), includeHidden: true
-            )
-            for orphan in claudeWorktrees
-            where context.fileManager.directoryExists(orphan)
+            let claudeRoot = repo.appendingPathComponent(".claude/worktrees")
+            for orphan in FileManager.default.contentsOfDirectoryIfPresent(claudeRoot, includeHidden: true)
+            where FileManager.default.directoryExists(orphan)
                 && !entries.contains(where: { canonicalPath($0.path) == canonicalPath(orphan.path) }) {
-                entries.append(GitWorktreeEntry(path: orphan.path, head: nil, branch: nil,
-                                                isMain: false, isLocked: false, isPrunable: false))
+                entries.append(GitWorktreeEntry(path: orphan.path))
             }
+            let claudePrefix = canonicalPath(claudeRoot.path) + "/"
             for entry in entries {
                 guard !seen.contains(entry.path) else { continue }
                 seen.insert(entry.path)
-                guard context.fileManager.directoryExists(URL(filePath: entry.path)) else {
+                guard FileManager.default.directoryExists(URL(filePath: entry.path)) else {
                     // Registration whose directory is gone: prunable, zero bytes, pure hygiene.
                     items.append(ScanItem(
                         path: entry.path,
@@ -51,12 +49,13 @@ public struct RepoWorktreeScanner: StorageScanner {
                     ))
                     continue
                 }
-                let isClaude = entry.path.contains("/.claude/worktrees/")
+                let isClaude = canonicalPath(entry.path).hasPrefix(claudePrefix)
                 let item = try await inspector.scanItem(
                     at: URL(filePath: entry.path),
                     tool: isClaude ? .claudeCode : .git,
                     displayName: "\(repo.lastPathComponent): \(URL(filePath: entry.path).lastPathComponent)",
-                    hasActiveProcess: context.processes.referencesPath(entry.path)
+                    hasActiveProcess: context.processes.referencesPath(entry.path),
+                    registeredEntries: registered
                 )
                 items.append(item)
             }

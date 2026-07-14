@@ -12,7 +12,7 @@ public struct CodexScanner: StorageScanner {
 
     public func scan(context: ScanContext) async throws -> [ScanItem] {
         let root = context.home.appendingPathComponent(".codex")
-        guard context.fileManager.directoryExists(root) else { return [] }
+        guard FileManager.default.directoryExists(root) else { return [] }
 
         let codexRunning = context.processes.commandLines.contains {
             $0.contains("codex") && ($0.contains("app-server") || $0.contains("codex exec") || $0.hasSuffix("codex"))
@@ -25,15 +25,14 @@ public struct CodexScanner: StorageScanner {
         // but some entries are the worktree directly. Only directories whose own
         // root has a .git entry are worktrees; never descend past one.
         let worktreesRoot = root.appendingPathComponent("worktrees")
-        for outer in context.fileManager.contentsOfDirectoryIfPresent(worktreesRoot) where context.fileManager.directoryExists(outer) {
+        for outer in FileManager.default.contentsOfDirectoryIfPresent(worktreesRoot) where FileManager.default.directoryExists(outer) {
             try Task.checkCancellation()
             let candidates: [URL]
-            if WorktreeInspector.isLinkedWorktree(outer) || WorktreeInspector.isMainRepository(outer) {
+            if WorktreeInspector.isWorktreeRoot(outer) {
                 candidates = [outer]
             } else {
-                candidates = context.fileManager.contentsOfDirectoryIfPresent(outer).filter {
-                    context.fileManager.directoryExists($0)
-                        && (WorktreeInspector.isLinkedWorktree($0) || WorktreeInspector.isMainRepository($0))
+                candidates = FileManager.default.contentsOfDirectoryIfPresent(outer).filter {
+                    FileManager.default.directoryExists($0) && WorktreeInspector.isWorktreeRoot($0)
                 }
             }
             for inner in candidates {
@@ -60,34 +59,37 @@ public struct CodexScanner: StorageScanner {
                 } else {
                     item.reasons.append("No Codex session references this worktree.")
                 }
+                // Codex wraps most worktrees in an id directory; clean it up too.
+                item.trashParentIfEmpty = inner != outer
                 items.append(item)
             }
         }
 
         // Regenerable data. Everything here is recreated or only useful for debugging.
-        let caches: [(String, String)] = [
-            ("logs_2.sqlite", "Codex telemetry log"),
-            ("sqlite", "Codex stale database snapshots"),
-            ("cache", "Codex cache"),
-            ("shell_snapshots", "Codex shell snapshots"),
+        let caches: [(relative: String, title: String, protectedWhileRunning: Bool, companionSuffixes: [String])] = [
+            ("logs_2.sqlite", "Codex telemetry log", true, ["-wal", "-shm"]),
+            ("sqlite", "Codex stale database snapshots", false, []),
+            ("cache", "Codex cache", false, []),
+            ("shell_snapshots", "Codex shell snapshots", false, []),
         ]
-        for (relative, title) in caches {
-            let url = root.appendingPathComponent(relative)
-            guard context.fileManager.fileExists(atPath: url.path) else { continue }
+        for cache in caches {
+            let url = root.appendingPathComponent(cache.relative)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
             var item = ScanItem(
                 path: url.path,
-                displayName: title,
+                displayName: cache.title,
                 tool: .codex,
                 category: .toolCache,
                 lastActivity: latestModification(in: url, maxDepth: 0),
-                hasActiveProcess: codexRunning && relative == "logs_2.sqlite"
+                hasActiveProcess: codexRunning && cache.protectedWhileRunning,
+                companionPaths: cache.companionSuffixes.map { url.path + $0 }
             )
             (item.safety, item.reasons) = Classifier.classify(item)
             items.append(item)
         }
 
         let sessions = root.appendingPathComponent("sessions")
-        if context.fileManager.directoryExists(sessions) {
+        if FileManager.default.directoryExists(sessions) {
             var item = ScanItem(
                 path: sessions.path,
                 displayName: "Codex session transcripts",

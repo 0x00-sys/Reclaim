@@ -15,6 +15,9 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
     case homebrew = "Homebrew"
     case playwright = "Playwright"
     case pip = "pip"
+    case deno = "Deno"
+    case gradle = "Gradle"
+    case cocoapods = "CocoaPods"
 
     public var id: String { rawValue }
 }
@@ -34,7 +37,7 @@ public enum StorageCategory: String, Sendable, Codable, CaseIterable, Identifiab
     public var id: String { rawValue }
 }
 
-public enum Safety: String, Sendable, Codable, CaseIterable, Identifiable, Comparable {
+public enum Safety: String, Sendable, Codable, CaseIterable, Identifiable {
     case safe = "Safe to clean"
     case review = "Review first"
     case protected = "Active or protected"
@@ -42,16 +45,21 @@ public enum Safety: String, Sendable, Codable, CaseIterable, Identifiable, Compa
 
     public var id: String { rawValue }
 
-    private var rank: Int {
-        switch self {
-        case .safe: 0
-        case .review: 1
-        case .unknown: 2
-        case .protected: 3
-        }
-    }
+    /// The one place the "user may delete this" policy lives.
+    public var isCleanable: Bool { self == .safe || self == .review }
+}
 
-    public static func < (lhs: Safety, rhs: Safety) -> Bool { lhs.rank < rhs.rank }
+public extension Int64 {
+    var formattedBytes: String {
+        ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
+    }
+}
+
+public extension Sequence where Element == ScanItem {
+    /// Sum of known sizes; unmeasured items count as zero.
+    var totalSizeBytes: Int64 {
+        reduce(0) { $0 + ($1.sizeBytes ?? 0) }
+    }
 }
 
 /// Git state observed for a worktree at scan time.
@@ -108,6 +116,12 @@ public struct ScanItem: Sendable, Codable, Identifiable, Equatable {
     public var hasActiveSession: Bool
     public var safety: Safety
     public var reasons: [String]
+    /// Scanner-supplied caution: demotes a Safe verdict to Review with this reason.
+    public var cautionNote: String?
+    /// Sidecar files the scanner knows belong to this item (e.g. sqlite -wal/-shm).
+    public var companionPaths: [String]
+    /// Trash the parent directory too when it ends up empty (wrapper layouts).
+    public var trashParentIfEmpty: Bool
 
     public init(
         path: String,
@@ -120,7 +134,10 @@ public struct ScanItem: Sendable, Codable, Identifiable, Equatable {
         hasActiveProcess: Bool = false,
         hasActiveSession: Bool = false,
         safety: Safety = .unknown,
-        reasons: [String] = []
+        reasons: [String] = [],
+        cautionNote: String? = nil,
+        companionPaths: [String] = [],
+        trashParentIfEmpty: Bool = false
     ) {
         self.path = path
         self.displayName = displayName
@@ -133,6 +150,9 @@ public struct ScanItem: Sendable, Codable, Identifiable, Equatable {
         self.hasActiveSession = hasActiveSession
         self.safety = safety
         self.reasons = reasons
+        self.cautionNote = cautionNote
+        self.companionPaths = companionPaths
+        self.trashParentIfEmpty = trashParentIfEmpty
     }
 
     public var url: URL { URL(filePath: path) }

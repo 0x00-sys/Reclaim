@@ -6,7 +6,6 @@ public struct ScanContext: Sendable {
     public var processes: ProcessSnapshot
     /// Directories the user wants scanned for repositories and node_modules.
     public var projectRoots: [URL]
-    public var fileManager: FileManager { .default }
 
     public init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -25,6 +24,18 @@ public protocol StorageScanner: Sendable {
     var name: String { get }
     func scan(context: ScanContext) async throws -> [ScanItem]
 }
+
+/// The one scanner roster shared by the app and the CLI. The Tool tags drive
+/// the notch sprite while that scanner runs.
+public let defaultScanners: [(scanner: any StorageScanner, tool: Tool?)] = [
+    (CodexScanner(), .codex),
+    (ConductorScanner(), .conductor),
+    (RepoWorktreeScanner(), .git),
+    (NodeModulesScanner(), .npm),
+    (DevCacheScanner(), nil),
+    (XcodeScanner(), .xcode),
+    (ClaudeCodeScanner(), .claudeCode),
+]
 
 extension FileManager {
     func directoryExists(_ url: URL) -> Bool {

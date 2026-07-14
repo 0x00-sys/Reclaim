@@ -5,10 +5,14 @@ import Foundation
 public enum Classifier {
 
     public static func classify(_ item: ScanItem, now: Date = .now) -> (Safety, [String]) {
-        if let worktree = item.worktree {
-            return classifyWorktree(item, worktree, now: now)
+        var (safety, reasons) = item.worktree.map { classifyWorktree(item, $0, now: now) }
+            ?? classifyNonWorktree(item, now: now)
+        // Scanner-supplied caution demotes an otherwise-safe verdict to review.
+        if safety == .safe, let note = item.cautionNote {
+            safety = .review
+            reasons = [note]
         }
-        return classifyNonWorktree(item, now: now)
+        return (safety, reasons)
     }
 
     static func classifyWorktree(_ item: ScanItem, _ tree: WorktreeState, now: Date) -> (Safety, [String]) {

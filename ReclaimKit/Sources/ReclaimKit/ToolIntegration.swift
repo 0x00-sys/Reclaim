@@ -9,28 +9,20 @@ import AppKit
 /// - Cursor:     https://cursor.com/docs/reference/deeplinks
 public enum ToolIntegration {
 
-    public static func supportsPromptURL(_ tool: Tool) -> Bool {
-        switch tool {
-        case .codex, .claudeCode, .conductor, .cursor: true
-        default: false
-        }
+    /// App that handles the tool's URL scheme, if anything on this Mac does.
+    /// Tools without a handler aren't installed and shouldn't be offered.
+    @MainActor private static var handlerCache: [Tool: URL?] = [:]
+
+    @MainActor public static func handlerApplicationURL(for tool: Tool) -> URL? {
+        if let cached = handlerCache[tool] { return cached }
+        let handler = promptURL(tool: tool, prompt: "x")
+            .flatMap { NSWorkspace.shared.urlForApplication(toOpen: $0) }
+        handlerCache[tool] = handler
+        return handler
     }
 
-    /// True when something on this Mac actually handles the tool's URL scheme.
-    /// Tools that aren't installed shouldn't be offered in the UI.
-    @MainActor private static var installedCache: [Tool: Bool] = [:]
-
     @MainActor public static func isInstalled(_ tool: Tool) -> Bool {
-        if let cached = installedCache[tool] { return cached }
-        guard supportsPromptURL(tool),
-              let url = promptURL(tool: tool, prompt: "x")
-        else {
-            installedCache[tool] = false
-            return false
-        }
-        let installed = NSWorkspace.shared.urlForApplication(toOpen: url) != nil
-        installedCache[tool] = installed
-        return installed
+        handlerApplicationURL(for: tool) != nil
     }
 
     public static func promptURL(tool: Tool, prompt: String, path: String? = nil) -> URL? {

@@ -8,22 +8,25 @@ public struct WorktreeInspector: Sendable {
         self.git = git
     }
 
-    /// True when the directory contains a `.git` *file* (linked worktree), not a `.git` directory.
-    public static func isLinkedWorktree(_ url: URL) -> Bool {
-        let gitPath = url.appendingPathComponent(".git")
+    /// nil = no `.git` entry; true = `.git` directory (main repo); false = `.git` file (linked worktree).
+    private static func gitEntryIsDirectory(_ url: URL) -> Bool? {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: gitPath.path, isDirectory: &isDirectory) else { return false }
-        return !isDirectory.boolValue
-    }
-
-    public static func isMainRepository(_ url: URL) -> Bool {
-        let gitPath = url.appendingPathComponent(".git")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: gitPath.path, isDirectory: &isDirectory) else { return false }
+        guard FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path,
+                                             isDirectory: &isDirectory) else { return nil }
         return isDirectory.boolValue
     }
 
-    public func inspect(_ url: URL) async throws -> WorktreeState {
+    /// True when the directory contains a `.git` *file* (linked worktree), not a `.git` directory.
+    public static func isLinkedWorktree(_ url: URL) -> Bool { gitEntryIsDirectory(url) == false }
+
+    public static func isMainRepository(_ url: URL) -> Bool { gitEntryIsDirectory(url) == true }
+
+    /// The directory is the root of a working tree (linked worktree or main repo).
+    public static func isWorktreeRoot(_ url: URL) -> Bool { gitEntryIsDirectory(url) != nil }
+
+    /// Pass `registeredEntries` when the caller already ran `git worktree list`
+    /// for the repository; it saves one subprocess per worktree.
+    public func inspect(_ url: URL, registeredEntries: [GitWorktreeEntry]? = nil) async throws -> WorktreeState {
         let path = url.path
         let canonical = canonicalPath(path)
         var state = WorktreeState()
@@ -38,19 +41,27 @@ public struct WorktreeInspector: Sendable {
             state.isMainWorktree = true
             state.isRegistered = true
         } else {
-            let registered = try await git.listWorktrees(repository: repo)
+            let registered: [GitWorktreeEntry]
+            if let registeredEntries {
+                registered = registeredEntries
+            } else {
+                registered = try await git.listWorktrees(repository: repo)
+            }
             if let entry = registered.first(where: { canonicalPath($0.path) == canonical }) {
                 state.isRegistered = true
                 state.isLocked = entry.isLocked
             }
         }
 
-        state.branch = try await git.currentBranch(workingTree: path)
-        let status = try await git.status(workingTree: path)
-        state.hasModifiedFiles = status.modified
-        state.hasUntrackedFiles = status.untracked
-        state.unpushedCommits = try await git.unpushedCommitCount(workingTree: path)
-        state.lastCommitDate = try await git.lastCommitDate(workingTree: path)
+        // The four state queries are independent; run them concurrently.
+        async let branch = git.currentBranch(workingTree: path)
+        async let status = git.status(workingTree: path)
+        async let unpushed = git.unpushedCommitCount(workingTree: path)
+        async let lastCommit = git.lastCommitDate(workingTree: path)
+        state.branch = try await branch
+        (state.hasModifiedFiles, state.hasUntrackedFiles) = try await status
+        state.unpushedCommits = try await unpushed
+        state.lastCommitDate = try await lastCommit
         return state
     }
 
@@ -60,9 +71,10 @@ public struct WorktreeInspector: Sendable {
         tool: Tool,
         displayName: String? = nil,
         hasActiveProcess: Bool = false,
-        hasActiveSession: Bool = false
+        hasActiveSession: Bool = false,
+        registeredEntries: [GitWorktreeEntry]? = nil
     ) async throws -> ScanItem {
-        let state = try await inspect(url)
+        let state = try await inspect(url, registeredEntries: registeredEntries)
         var item = ScanItem(
             path: url.path,
             displayName: displayName ?? url.lastPathComponent,

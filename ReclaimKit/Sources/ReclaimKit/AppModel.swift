@@ -1,12 +1,6 @@
 import Foundation
 import Observation
 
-extension Int64 {
-    var formattedBytesForStatus: String {
-        ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
-    }
-}
-
 @MainActor
 @Observable
 public final class AppModel {
@@ -39,15 +33,23 @@ public final class AppModel {
         }
     }
 
-    public var totalBytes: Int64 { items.compactMap(\.sizeBytes).reduce(0, +) }
-    public var safeBytes: Int64 { items.filter { $0.safety == .safe }.compactMap(\.sizeBytes).reduce(0, +) }
+    public var totalBytes: Int64 { items.totalSizeBytes }
+    public var safeBytes: Int64 { items.filter { $0.safety == .safe }.totalSizeBytes }
     public var selectedItems: [ScanItem] { items.filter { selection.contains($0.id) } }
-    public var selectedBytes: Int64 { selectedItems.compactMap(\.sizeBytes).reduce(0, +) }
+    public var selectedBytes: Int64 { selectedItems.totalSizeBytes }
+
+    /// The one status line the notch, menu bar, and hero all render.
+    public var statusLine: String {
+        if isCleaning { return cleaningStatus }
+        if isScanning { return scanProgress.isEmpty ? "Scanning…" : scanProgress }
+        return "\(safeBytes.formattedBytes) safe to clean"
+    }
 
     public func cancelScan() {
         scanTask?.cancel()
         scanTask = nil
         isScanning = false
+        currentTool = nil
     }
 
     public func scan() {
@@ -69,20 +71,8 @@ public final class AppModel {
             processes: await ProcessSnapshot.capture(),
             projectRoots: projectRoots.map { URL(filePath: $0) }
         )
-        let scanners: [(scanner: any StorageScanner, tool: Tool?)] = [
-            (CodexScanner(), .codex),
-            (ConductorScanner(), .conductor),
-            (RepoWorktreeScanner(), .git),
-            (NodeModulesScanner(), .npm),
-            (PackageCacheScanner(), .pnpm),
-            (DevCacheScanner(), nil),
-            (XcodeScanner(), .xcode),
-            (ClaudeCodeScanner(), .claudeCode),
-            (CursorScanner(), .cursor),
-        ]
-
         var collected: [ScanItem] = []
-        for (scanner, tool) in scanners {
+        for (scanner, tool) in defaultScanners {
             if Task.isCancelled { return }
             scanProgress = "Scanning \(scanner.name)…"
             currentTool = tool
@@ -93,9 +83,8 @@ public final class AppModel {
             } catch {
                 // One scanner failing must not sink the rest.
             }
-            items = deduplicate(collected).sorted { ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }
+            items = deduplicateScanItems(collected).sorted { ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }
         }
-        items = deduplicate(collected)
 
         scanProgress = "Measuring sizes…"
         currentTool = nil
@@ -104,12 +93,9 @@ public final class AppModel {
         scanProgress = ""
     }
 
-    private func deduplicate(_ items: [ScanItem]) -> [ScanItem] {
-        deduplicateScanItems(items)
-    }
-
     private func measureSizes() async {
         let unsized = items.filter { $0.sizeBytes == nil }.map(\.url)
+        var indexByPath = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.path, $0) })
         await withTaskGroup(of: (String, Int64?).self) { group in
             var iterator = unsized.makeIterator()
             var running = 0
@@ -124,7 +110,7 @@ public final class AppModel {
             while running > 0 {
                 guard let (path, size) = await group.next() else { break }
                 running -= 1
-                if let index = items.firstIndex(where: { $0.path == path }) {
+                if let index = indexByPath[path] {
                     items[index].sizeBytes = size
                 }
                 if Task.isCancelled { group.cancelAll(); break }
@@ -143,7 +129,7 @@ public final class AppModel {
         let results = await cleanupEngine.clean(items: selected) { [weak self] result in
             done += 1
             freed += result.freedBytes ?? 0
-            self?.cleaningStatus = "Cleaning \(done) of \(total) · \(freed.formattedBytesForStatus) freed"
+            self?.cleaningStatus = "Cleaning \(done) of \(total) · \(freed.formattedBytes) freed"
             // Keep the list live: successfully removed items disappear as they go.
             if result.success {
                 self?.items.removeAll { $0.path == result.path }
@@ -151,9 +137,6 @@ public final class AppModel {
             }
         }
         cleanupResults = results
-        let removed = Set(results.filter(\.success).map(\.path))
-        items.removeAll { removed.contains($0.path) }
-        selection.subtract(removed)
         isCleaning = false
         cleaningStatus = ""
     }

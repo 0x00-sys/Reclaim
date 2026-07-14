@@ -51,12 +51,18 @@ public enum CodexThreadIndex {
         case SQLITE_TEXT:
             guard let text = sqlite3_column_text(statement, column) else { return nil }
             let string = String(cString: text)
-            let plain = ISO8601DateFormatter()
-            if let date = plain.date(from: string) { return date }
-            plain.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return plain.date(from: string)
+            return Self.plainFormatter.date(from: string)
+                ?? Self.fractionalFormatter.date(from: string)
         default:
             return nil
         }
     }
+
+    // ISO8601DateFormatter is documented thread-safe; creating one per row is not free.
+    private nonisolated(unsafe) static let plainFormatter = ISO8601DateFormatter()
+    private nonisolated(unsafe) static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }

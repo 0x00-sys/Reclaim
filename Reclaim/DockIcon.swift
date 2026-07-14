@@ -6,16 +6,7 @@ import AppKit
 @MainActor
 enum DockIcon {
     private static var observer: NSObjectProtocol?
-
-    static let invader = [
-        "..#..#..",
-        ".######.",
-        "##.##.##",
-        "########",
-        "#.####.#",
-        "#.#..#.#",
-        "..#..#..",
-    ]
+    private static let renderSize: CGFloat = 512
 
     static func install() {
         update()
@@ -33,10 +24,11 @@ enum DockIcon {
 
     static func update() {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        NSApp.applicationIconImage = render(dark: dark, size: 512)
+        NSApp.applicationIconImage = render(dark: dark)
     }
 
-    static func render(dark: Bool, size: CGFloat) -> NSImage {
+    static func render(dark: Bool) -> NSImage {
+        let size = renderSize
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { canvas in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             // Dock icons carry ~9% transparent margin per side; applicationIconImage
@@ -58,14 +50,16 @@ enum DockIcon {
                                    start: CGPoint(x: 0, y: rect.maxY),
                                    end: CGPoint(x: 0, y: rect.minY),
                                    options: [])
+            // The mascot lives in PixelArt; the icon just renders it monochrome.
+            let invader = PixelArt.sprite(for: nil).frames[0]
             let rows = invader.count
-            let cols = invader[0].count
+            let cols = invader.map(\.count).max() ?? 1
             let cell = rect.width * 0.68 / CGFloat(cols)
             let originX = rect.midX - cell * CGFloat(cols) / 2
             let originY = rect.midY - cell * CGFloat(rows) / 2
             (dark ? NSColor(calibratedWhite: 0.96, alpha: 1) : NSColor(calibratedWhite: 0.07, alpha: 1)).setFill()
             for (row, line) in invader.enumerated() {
-                for (col, char) in line.enumerated() where char == "#" {
+                for (col, char) in line.enumerated() where char != "." {
                     CGRect(x: originX + CGFloat(col) * cell,
                            y: originY + CGFloat(rows - 1 - row) * cell,
                            width: cell * 0.88, height: cell * 0.88).fill()

@@ -282,11 +282,7 @@ struct NotchView: View {
     private var expanded: Bool { viewModel.expanded }
 
     private var closedSize: CGSize {
-        let status = model.isCleaning
-            ? model.cleaningStatus
-            : model.isScanning
-                ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-                : "\(model.safeBytes.formattedBytes) safe to clean"
+        let status = model.statusLine
         let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
         let statusWidth = (status as NSString).size(withAttributes: [.font: font]).width
             + (model.totalBytes.formattedBytes as NSString).size(withAttributes: [.font: font]).width
@@ -386,14 +382,10 @@ struct CollapsedNotchContent: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: metrics.closedContentTopInset)
             HStack(spacing: 6) {
-                PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
+                PixelSpriteView(tool: model.currentTool,
                                 palette: model.isScanning ? .blue : .green)
                     .frame(width: 15, height: 13)
-                Text(model.isCleaning
-                     ? model.cleaningStatus
-                     : model.isScanning
-                         ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-                         : "\(model.safeBytes.formattedBytes) safe to clean")
+                Text(model.statusLine)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -425,14 +417,10 @@ struct ExpandedNotchContent: View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: metrics.openContentTopInset + 6)
             HStack(spacing: 9) {
-                PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
+                PixelSpriteView(tool: model.currentTool,
                                 palette: model.isScanning ? .blue : .green)
                     .frame(width: 20, height: 16)
-                Text(model.isCleaning
-                     ? model.cleaningStatus
-                     : model.isScanning
-                         ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-                         : "Scan complete")
+                Text(model.isScanning || model.isCleaning ? model.statusLine : "Scan complete")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .contentTransition(.opacity)

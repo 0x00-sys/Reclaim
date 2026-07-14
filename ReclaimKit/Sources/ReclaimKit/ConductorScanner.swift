@@ -8,7 +8,7 @@ public struct ConductorScanner: StorageScanner {
     public init() {}
 
     public func scan(context: ScanContext) async throws -> [ScanItem] {
-        let fm = context.fileManager
+        let fm = FileManager.default
         let workspaces = context.home.appendingPathComponent("conductor/workspaces")
         guard fm.directoryExists(workspaces) else { return [] }
 
@@ -26,8 +26,7 @@ public struct ConductorScanner: StorageScanner {
                     aliasedTargets.insert(
                         URL(filePath: destination, relativeTo: repoDir).standardizedFileURL.lastPathComponent
                     )
-                } else if fm.directoryExists(entry),
-                          WorktreeInspector.isLinkedWorktree(entry) || WorktreeInspector.isMainRepository(entry) {
+                } else if fm.directoryExists(entry), WorktreeInspector.isWorktreeRoot(entry) {
                     workspaceDirs.append(entry)
                 }
             }
@@ -43,10 +42,9 @@ public struct ConductorScanner: StorageScanner {
                     hasActiveSession: conductorRunning && hasAlias
                 )
                 if hasAlias && !conductorRunning {
-                    item.reasons.append("A branch symlink still points at this workspace.")
-                    if item.safety == .safe {
-                        item.safety = .review
-                    }
+                    // Evidence, not verdict: the Classifier owns the demotion rule.
+                    item.cautionNote = "A branch symlink still points at this workspace."
+                    (item.safety, item.reasons) = Classifier.classify(item)
                 }
                 items.append(item)
             }

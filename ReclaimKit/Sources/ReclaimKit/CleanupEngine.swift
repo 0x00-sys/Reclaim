@@ -93,7 +93,7 @@ public actor CleanupEngine {
         if item.worktree != nil {
             return await removeWorktree(item)
         }
-        return trash(item, alsoSiblings: item.path.hasSuffix(".sqlite") ? ["-wal", "-shm"] : [])
+        return trash(item)
     }
 
     private func removeWorktree(_ item: ScanItem) async -> CleanupResult {
@@ -104,7 +104,7 @@ public actor CleanupEngine {
         // The path must be a worktree root itself, not a directory inside one —
         // git resolves subdirectories to the enclosing worktree, which would make
         // the checks below pass while we delete only part of it.
-        guard WorktreeInspector.isLinkedWorktree(item.url) || WorktreeInspector.isMainRepository(item.url) else {
+        guard WorktreeInspector.isWorktreeRoot(item.url) else {
             return failure("Refused: not the root of a git worktree.")
         }
         // Re-inspect right now; the scan result may be stale.
@@ -130,15 +130,9 @@ public actor CleanupEngine {
             return failure("Refused: the worktree is locked in git.")
         }
 
-        var result = trash(item, alsoSiblings: [])
+        var result = trash(item)
         if result.success, let repo = state.repositoryPath {
             try? await git.pruneWorktrees(repository: repo)
-            // Codex wraps each worktree in an id directory; remove the wrapper if now empty.
-            let parent = item.url.deletingLastPathComponent()
-            if FileManager.default.contentsOfDirectoryIfPresent(parent).isEmpty,
-               parent.path.contains("/.codex/worktrees/") {
-                try? FileManager.default.trashItem(at: parent, resultingItemURL: nil)
-            }
             result.message = "Moved to Trash and pruned from \(URL(filePath: repo).lastPathComponent)."
         }
         return result
@@ -169,13 +163,16 @@ public actor CleanupEngine {
         return result.status <= 1 ? .free : .unknown
     }
 
-    private func trash(_ item: ScanItem, alsoSiblings suffixes: [String]) -> CleanupResult {
+    private func trash(_ item: ScanItem) -> CleanupResult {
         do {
             try FileManager.default.trashItem(at: item.url, resultingItemURL: nil)
-            for suffix in suffixes {
-                let sibling = URL(filePath: item.path + suffix)
-                if FileManager.default.fileExists(atPath: sibling.path) {
-                    try? FileManager.default.trashItem(at: sibling, resultingItemURL: nil)
+            for companion in item.companionPaths where FileManager.default.fileExists(atPath: companion) {
+                try? FileManager.default.trashItem(at: URL(filePath: companion), resultingItemURL: nil)
+            }
+            if item.trashParentIfEmpty {
+                let parent = item.url.deletingLastPathComponent()
+                if FileManager.default.contentsOfDirectoryIfPresent(parent, includeHidden: true).isEmpty {
+                    try? FileManager.default.trashItem(at: parent, resultingItemURL: nil)
                 }
             }
             if FileManager.default.fileExists(atPath: item.path) {

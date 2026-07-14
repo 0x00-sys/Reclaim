@@ -31,7 +31,7 @@ struct GitFixture {
 
     @discardableResult
     func git(_ arguments: String..., cwd: String) async throws -> String {
-        let result = try await runSubprocess("/usr/bin/git", Array(arguments), currentDirectory: cwd)
+        let result = try await git.run(Array(arguments), in: cwd)
         guard result.succeeded else {
             throw NSError(domain: "GitFixture", code: Int(result.status),
                           userInfo: [NSLocalizedDescriptionKey: result.stderr])

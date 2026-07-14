@@ -8,7 +8,7 @@ public struct XcodeScanner: StorageScanner {
 
     public func scan(context: ScanContext) async throws -> [ScanItem] {
         let developer = context.home.appendingPathComponent("Library/Developer")
-        let fm = context.fileManager
+        let fm = FileManager.default
         let xcodeRunning = context.processes.hasProcess(named: "Xcode")
         var items: [ScanItem] = []
 
@@ -28,13 +28,15 @@ public struct XcodeScanner: StorageScanner {
                 items.append(item)
                 continue
             }
+            let meta = derivedDataInfo(entry)
             var item = ScanItem(
                 path: entry.path,
-                displayName: displayName(forDerivedData: entry),
+                displayName: meta.name,
                 tool: .xcode,
                 category: .derivedData,
                 lastActivity: latestModification(in: entry, maxDepth: 0),
-                hasActiveProcess: xcodeRunning && workspaceIsOpen(entry, context: context)
+                hasActiveProcess: xcodeRunning
+                    && meta.workspacePath.map { context.processes.referencesPath($0) } ?? false
             )
             (item.safety, item.reasons) = Classifier.classify(item)
             items.append(item)
@@ -65,26 +67,17 @@ public struct XcodeScanner: StorageScanner {
     }
 
     /// DerivedData folders are "<Name>-<hash>"; the info.plist inside names the workspace.
-    private func displayName(forDerivedData url: URL) -> String {
+    private func derivedDataInfo(_ url: URL) -> (name: String, workspacePath: String?) {
         let plist = url.appendingPathComponent("info.plist")
         if let data = try? Data(contentsOf: plist),
            let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
            let workspacePath = dict["WorkspacePath"] as? String {
-            return URL(filePath: workspacePath).deletingPathExtension().lastPathComponent
+            return (URL(filePath: workspacePath).deletingPathExtension().lastPathComponent, workspacePath)
         }
         let name = url.lastPathComponent
         if let dash = name.lastIndex(of: "-") {
-            return String(name[..<dash])
+            return (String(name[..<dash]), nil)
         }
-        return name
-    }
-
-    private func workspaceIsOpen(_ derivedDataEntry: URL, context: ScanContext) -> Bool {
-        let plist = derivedDataEntry.appendingPathComponent("info.plist")
-        guard let data = try? Data(contentsOf: plist),
-              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let workspacePath = dict["WorkspacePath"] as? String
-        else { return false }
-        return context.processes.referencesPath(workspacePath)
+        return (name, nil)
     }
 }

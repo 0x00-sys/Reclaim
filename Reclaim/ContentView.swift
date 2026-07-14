@@ -31,50 +31,45 @@ struct ContentView: View {
 
     /// Items below the threshold are noise; stale registrations stay visible
     /// because they are zero bytes by nature but real repo hygiene.
-    var filteredItems: [ScanItem] {
-        guard !showSmallItems else { return matchingItems }
-        return matchingItems.filter { item in
-            item.worktree?.isPrunable == true
-                || item.sizeBytes == nil
-                || item.sizeBytes! >= Self.smallItemThreshold
-        }
-    }
-
-    var hiddenSmallCount: Int { matchingItems.count - filteredItems.count }
-
-    /// What the one-click Clean button would remove: only Safe items among the
-    /// currently filtered set. Review/Protected/Unknown are never auto-included.
-    var filteredSafeBytes: Int64 {
-        filteredItems.filter { $0.safety == .safe }.compactMap(\.sizeBytes).reduce(0, +)
+    private func isLargeEnoughToShow(_ item: ScanItem) -> Bool {
+        item.worktree?.isPrunable == true
+            || item.sizeBytes == nil
+            || item.sizeBytes! >= Self.smallItemThreshold
     }
 
     var body: some View {
+        // Filter once per body evaluation; every derived number reads these locals.
+        let matching = matchingItems
+        let visible = showSmallItems ? matching : matching.filter(isLargeEnoughToShow)
+        let hiddenSmall = matching.count - visible.count
+        let visibleSafe = visible.filter { $0.safety == .safe }
+
         ZStack(alignment: .bottom) {
             if model.items.isEmpty && !model.isScanning {
-                HeroCard(filteredSafeBytes: 0, onCleanSafe: {})
+                EmptyStateCard()
                     .frame(maxWidth: 560)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     VStack(spacing: 18) {
-                        HeroCard(filteredSafeBytes: filteredSafeBytes, onCleanSafe: {
-                            model.selection = Set(filteredItems.filter { $0.safety == .safe }.map(\.id))
+                        HeroCard(filteredSafeBytes: visibleSafe.totalSizeBytes, onCleanSafe: {
+                            model.selection = Set(visibleSafe.map(\.id))
                             confirmingCleanup = true
                         })
                         FilterBar(categoryFilter: $categoryFilter,
                                   safetyFilter: $safetyFilter,
                                   excludedTools: $excludedTools,
                                   minIdleSeconds: $minIdleSeconds)
-                        ItemCardList(items: filteredItems, expandedItem: $expandedItem,
+                        ItemCardList(items: visible, expandedItem: $expandedItem,
                                      onCleanSingle: { item in
                                          model.selection = [item.id]
                                          confirmingCleanup = true
                                      })
-                        if hiddenSmallCount > 0 || showSmallItems {
+                        if hiddenSmall > 0 || showSmallItems {
                             HoverTextButton(title: showSmallItems
                                             ? "Hide small items"
-                                            : "Show \(hiddenSmallCount) small item\(hiddenSmallCount == 1 ? "" : "s") under 10 MB") {
+                                            : "Show \(hiddenSmall) small item\(hiddenSmall == 1 ? "" : "s") under 10 MB") {
                                 showSmallItems.toggle()
                             }
                             .frame(maxWidth: .infinity)
@@ -125,15 +120,42 @@ struct ContentView: View {
     }
 
     var cleanableSelection: [ScanItem] {
-        model.selectedItems.filter { $0.safety == .safe || $0.safety == .review }
+        model.selectedItems.filter { $0.safety.isCleanable }
     }
 
     var excludedSelection: [ScanItem] {
-        model.selectedItems.filter { $0.safety == .protected || $0.safety == .unknown }
+        model.selectedItems.filter { !$0.safety.isCleanable }
     }
 }
 
 // MARK: - Hero
+
+/// The welcome card shown before the first scan; ContentView owns the choice
+/// between this and the summary HeroCard.
+struct EmptyStateCard: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 14) {
+            PixelSpriteView(palette: .blue)
+                .frame(width: 96, height: 64)
+            Text("Find your lost gigabytes")
+                .font(.title.weight(.semibold))
+            Text("Worktrees, node_modules, caches, and AI agent leftovers.\nNothing is deleted without asking you first.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            Button("Scan Now") { model.scan() }
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
+                .pointerStyle(.link)
+                .padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+        .padding(18)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+}
 
 struct HeroCard: View {
     @Environment(AppModel.self) private var model
@@ -142,25 +164,7 @@ struct HeroCard: View {
 
     var body: some View {
         Group {
-            if model.items.isEmpty && !model.isScanning {
-                VStack(spacing: 14) {
-                    PixelSpriteView(palette: .blue)
-                        .frame(width: 96, height: 64)
-                    Text("Find your lost gigabytes")
-                        .font(.title.weight(.semibold))
-                    Text("Worktrees, node_modules, caches, and AI agent leftovers.\nNothing is deleted without asking you first.")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                    Button("Scan Now") { model.scan() }
-                        .buttonStyle(.glassProminent)
-                        .controlSize(.large)
-                        .pointerStyle(.link)
-                        .padding(.top, 6)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
-            } else {
-                HStack(spacing: 18) {
+            HStack(spacing: 18) {
                     ReclaimGauge(safe: model.safeBytes, total: model.totalBytes, isScanning: model.isScanning)
                         .frame(width: 64, height: 64)
 
@@ -219,7 +223,6 @@ struct HeroCard: View {
                         .help("Move every item marked Safe in the current filter to the Trash")
                     }
                 }
-            }
         }
         .padding(18)
         .frame(maxWidth: .infinity)
@@ -281,8 +284,19 @@ struct FilterBar: View {
         ("Idle 7+ days", 7 * 86_400),
     ]
 
-    private var presentTools: [Tool] {
-        Tool.allCases.filter { tool in model.items.contains { $0.tool == tool } }
+    /// Everything the menus need, gathered in one pass over the items.
+    private struct Stats {
+        var categoryBytes: [StorageCategory: Int64] = [:]
+        var safetyCounts: [Safety: Int] = [:]
+        var tools: Set<Tool> = []
+
+        init(items: [ScanItem]) {
+            for item in items {
+                categoryBytes[item.category, default: 0] += item.sizeBytes ?? 0
+                safetyCounts[item.safety, default: 0] += 1
+                tools.insert(item.tool)
+            }
+        }
     }
 
     private var hasActiveFilter: Bool {
@@ -290,6 +304,7 @@ struct FilterBar: View {
     }
 
     var body: some View {
+        let stats = Stats(items: model.items)
         HStack(spacing: 8) {
             FilterPill(label: categoryFilter?.rawValue ?? "Everything",
                        icon: categoryFilter?.systemImage ?? "internaldrive",
@@ -297,8 +312,7 @@ struct FilterBar: View {
                 Button("Everything") { categoryFilter = nil }
                 Divider()
                 ForEach(StorageCategory.allCases) { category in
-                    let bytes = model.items.filter { $0.category == category }.compactMap(\.sizeBytes).reduce(0, +)
-                    if model.items.contains(where: { $0.category == category }) {
+                    if let bytes = stats.categoryBytes[category] {
                         Toggle(isOn: Binding(
                             get: { categoryFilter == category },
                             set: { categoryFilter = $0 ? category : nil }
@@ -313,7 +327,7 @@ struct FilterBar: View {
                        isActive: !excludedTools.isEmpty) {
                 Button("Include all tools") { excludedTools = [] }
                 Divider()
-                ForEach(presentTools) { tool in
+                ForEach(Tool.allCases.filter { stats.tools.contains($0) }) { tool in
                     Toggle(isOn: Binding(
                         get: { !excludedTools.contains(tool) },
                         set: { included in
@@ -330,8 +344,7 @@ struct FilterBar: View {
                 Button("Any status") { safetyFilter = nil }
                 Divider()
                 ForEach(Safety.allCases) { safety in
-                    let count = model.items.filter { $0.safety == safety }.count
-                    if count > 0 {
+                    if let count = stats.safetyCounts[safety] {
                         Toggle(isOn: Binding(
                             get: { safetyFilter == safety },
                             set: { safetyFilter = $0 ? safety : nil }
@@ -449,7 +462,7 @@ struct ItemCard: View {
     let onToggleSelect: () -> Void
     let onClean: () -> Void
 
-    private var selectable: Bool { item.safety == .safe || item.safety == .review }
+    private var selectable: Bool { item.safety.isCleanable }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -670,7 +683,7 @@ struct HoverTextButton: View {
 struct ItemDetail: View {
     let item: ScanItem
     let onClean: () -> Void
-    private var cleanable: Bool { item.safety == .safe || item.safety == .review }
+    private var cleanable: Bool { item.safety.isCleanable }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -842,8 +855,3 @@ extension StorageCategory {
     }
 }
 
-extension Int64 {
-    var formattedBytes: String {
-        ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
-    }
-}

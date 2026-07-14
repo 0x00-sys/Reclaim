@@ -2,11 +2,19 @@ import Foundation
 
 public struct GitWorktreeEntry: Sendable, Equatable {
     public var path: String
-    public var head: String?
     public var branch: String?
     public var isMain: Bool
     public var isLocked: Bool
     public var isPrunable: Bool
+
+    public init(path: String, branch: String? = nil, isMain: Bool = false,
+                isLocked: Bool = false, isPrunable: Bool = false) {
+        self.path = path
+        self.branch = branch
+        self.isMain = isMain
+        self.isLocked = isLocked
+        self.isPrunable = isPrunable
+    }
 }
 
 /// Thin wrapper over the git CLI. All calls use argument arrays, never a shell.
@@ -46,12 +54,8 @@ public struct GitClient: Sendable {
                 if let current { entries.append(current) }
                 current = GitWorktreeEntry(
                     path: String(line.dropFirst("worktree ".count)),
-                    head: nil, branch: nil,
-                    isMain: entries.isEmpty && current == nil,
-                    isLocked: false, isPrunable: false
+                    isMain: entries.isEmpty && current == nil
                 )
-            } else if line.hasPrefix("HEAD ") {
-                current?.head = String(line.dropFirst("HEAD ".count))
             } else if line.hasPrefix("branch ") {
                 current?.branch = String(line.dropFirst("branch ".count))
                     .replacingOccurrences(of: "refs/heads/", with: "")
@@ -106,13 +110,6 @@ public struct GitClient: Sendable {
               let seconds = TimeInterval(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
         else { return nil }
         return Date(timeIntervalSince1970: seconds)
-    }
-
-    /// Removes a registered worktree. Never passes --force: git itself refuses
-    /// if the tree is dirty or contains untracked files, which is our last line of defense.
-    public func removeWorktree(repository: String, worktreePath: String) async throws -> (ok: Bool, message: String) {
-        let result = try await run(["worktree", "remove", worktreePath], in: repository)
-        return (result.succeeded, result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     public func pruneWorktrees(repository: String) async throws {

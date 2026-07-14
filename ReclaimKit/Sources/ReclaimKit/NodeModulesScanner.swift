@@ -24,7 +24,7 @@ public struct NodeModulesScanner: StorageScanner {
     public func scan(context: ScanContext) async throws -> [ScanItem] {
         var nodeModules: [URL] = []
         var buildCaches: [(URL, Tool, String)] = []
-        for root in context.projectRoots where context.fileManager.directoryExists(root) {
+        for root in context.projectRoots where FileManager.default.directoryExists(root) {
             try search(root, depth: 0, nodeModules: &nodeModules, buildCaches: &buildCaches)
         }
 
@@ -54,8 +54,7 @@ public struct NodeModulesScanner: StorageScanner {
                 // The cache's own mtime says when the project was last built or
                 // its dev server last ran — the staleness signal that matters.
                 lastActivity: latestModification(in: url, maxDepth: 0),
-                hasActiveProcess: context.processes.referencesPath(url.path)
-                    || context.processes.referencesPath(project.path)
+                hasActiveProcess: context.processes.referencesPath(project.path)
             )
             (item.safety, item.reasons) = Classifier.classify(item)
             items.append(item)
