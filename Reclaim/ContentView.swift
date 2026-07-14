@@ -47,8 +47,10 @@ struct ContentView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         HeroCard()
-                        CategoryChips(selection: $categoryFilter)
-                        SafetyChips(selection: $safetyFilter)
+                        VStack(spacing: 8) {
+                            CategoryChips(selection: $categoryFilter)
+                            SafetyChips(selection: $safetyFilter)
+                        }
                         ItemCardList(items: filteredItems, expandedItem: $expandedItem,
                                      onCleanSingle: { item in
                                          model.selection = [item.id]
@@ -70,6 +72,7 @@ struct ContentView: View {
             SelectionBar(onClean: { confirmingCleanup = true })
         }
         .background(.background.secondary)
+        .frame(minWidth: 720, minHeight: 480)
         .searchable(text: $searchText, placement: .toolbar, prompt: "Filter by name or path")
         .navigationTitle("Reclaim")
         .task {

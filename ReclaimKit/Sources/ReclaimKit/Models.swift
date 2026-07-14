@@ -9,6 +9,11 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
     case claudeCode = "Claude Code"
     case conductor = "Conductor"
     case cursor = "Cursor"
+    case go = "Go"
+    case bun = "Bun"
+    case homebrew = "Homebrew"
+    case playwright = "Playwright"
+    case pip = "pip"
 
     public var id: String { rawValue }
 }

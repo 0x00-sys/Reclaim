@@ -19,6 +19,7 @@ struct ReclaimApp: App {
                     notchHUD.update(model: model)
                 }
         }
+        .defaultSize(width: 1000, height: 720)
 
         Settings {
             SettingsView()

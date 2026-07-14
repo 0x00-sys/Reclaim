@@ -67,6 +67,7 @@ public final class AppModel {
             (RepoWorktreeScanner(), .git),
             (NodeModulesScanner(), .npm),
             (PackageCacheScanner(), .pnpm),
+            (DevCacheScanner(), nil),
             (XcodeScanner(), .xcode),
             (ClaudeCodeScanner(), .claudeCode),
             (CursorScanner(), .cursor),

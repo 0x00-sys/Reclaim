@@ -14,7 +14,7 @@ let context = ScanContext(
 )
 let scanners: [any StorageScanner] = [
     CodexScanner(), ConductorScanner(), RepoWorktreeScanner(),
-    NodeModulesScanner(), PackageCacheScanner(), XcodeScanner(),
+    NodeModulesScanner(), PackageCacheScanner(), DevCacheScanner(), XcodeScanner(),
     ClaudeCodeScanner(), CursorScanner(),
 ]
 
