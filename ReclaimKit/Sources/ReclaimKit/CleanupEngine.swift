@@ -27,11 +27,18 @@ public actor CleanupEngine {
         self.git = git
     }
 
-    public func clean(items: [ScanItem]) async -> [CleanupResult] {
+    public func clean(
+        items: [ScanItem],
+        onProgress: (@MainActor @Sendable (CleanupResult) -> Void)? = nil
+    ) async -> [CleanupResult] {
         var results: [CleanupResult] = []
         let processes = await ProcessSnapshot.capture()
         for item in items {
-            results.append(await clean(item, processes: processes))
+            let result = await clean(item, processes: processes)
+            results.append(result)
+            if let onProgress {
+                await onProgress(result)
+            }
         }
         // One prune per affected repository after all removals.
         let repos = Set(items.compactMap { $0.worktree?.repositoryPath })

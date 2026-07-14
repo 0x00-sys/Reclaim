@@ -36,17 +36,26 @@ struct ContentView: View {
 
     var hiddenSmallCount: Int { matchingItems.count - filteredItems.count }
 
+    /// What the one-click Clean button would remove: only Safe items among the
+    /// currently filtered set. Review/Protected/Unknown are never auto-included.
+    var filteredSafeBytes: Int64 {
+        filteredItems.filter { $0.safety == .safe }.compactMap(\.sizeBytes).reduce(0, +)
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             if model.items.isEmpty && !model.isScanning {
-                HeroCard()
+                HeroCard(filteredSafeBytes: 0, onCleanSafe: {})
                     .frame(maxWidth: 560)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     VStack(spacing: 18) {
-                        HeroCard()
+                        HeroCard(filteredSafeBytes: filteredSafeBytes, onCleanSafe: {
+                            model.selection = Set(filteredItems.filter { $0.safety == .safe }.map(\.id))
+                            confirmingCleanup = true
+                        })
                         VStack(spacing: 8) {
                             CategoryChips(selection: $categoryFilter)
                             SafetyChips(selection: $safetyFilter)
@@ -122,6 +131,8 @@ struct ContentView: View {
 
 struct HeroCard: View {
     @Environment(AppModel.self) private var model
+    var filteredSafeBytes: Int64
+    var onCleanSafe: () -> Void
 
     var body: some View {
         Group {
@@ -174,11 +185,32 @@ struct HeroCard: View {
 
                     Spacer()
 
-                    if model.isScanning {
+                    if model.isCleaning {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(model.cleaningStatus)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .contentTransition(.opacity)
+                        }
+                    } else if model.isScanning {
                         Text(model.scanProgress)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .contentTransition(.opacity)
+                    } else if filteredSafeBytes > 0 {
+                        Button {
+                            onCleanSafe()
+                        } label: {
+                            Label("Clean \(filteredSafeBytes.formattedBytes)", systemImage: "trash")
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(.green)
+                        .controlSize(.large)
+                        .pointerStyle(.link)
+                        .help("Move every item marked Safe in the current filter to the Trash")
                     }
                 }
             }
@@ -685,7 +717,7 @@ struct SelectionBar: View {
     let onClean: () -> Void
 
     var body: some View {
-        if !model.selection.isEmpty {
+        if !model.selection.isEmpty && !model.isCleaning {
             HStack(spacing: 14) {
                 Text("\(model.selection.count) selected · \(model.selectedBytes.formattedBytes)")
                     .font(.callout.weight(.medium))

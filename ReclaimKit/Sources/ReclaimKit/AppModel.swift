@@ -1,6 +1,12 @@
 import Foundation
 import Observation
 
+extension Int64 {
+    var formattedBytesForStatus: String {
+        ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
+    }
+}
+
 @MainActor
 @Observable
 public final class AppModel {
@@ -11,6 +17,8 @@ public final class AppModel {
     public private(set) var currentTool: Tool?
     public private(set) var lastScanDate: Date?
     public private(set) var cleanupResults: [CleanupResult] = []
+    public private(set) var isCleaning = false
+    public private(set) var cleaningStatus = ""
     public var selection: Set<String> = []
 
     public var projectRoots: [String] {
@@ -126,10 +134,27 @@ public final class AppModel {
     }
 
     public func clean(_ selected: [ScanItem]) async {
-        let results = await cleanupEngine.clean(items: selected)
+        guard !isCleaning else { return }
+        isCleaning = true
+        cleaningStatus = "Preparing…"
+        var done = 0
+        var freed: Int64 = 0
+        let total = selected.count
+        let results = await cleanupEngine.clean(items: selected) { [weak self] result in
+            done += 1
+            freed += result.freedBytes ?? 0
+            self?.cleaningStatus = "Cleaning \(done) of \(total) · \(freed.formattedBytesForStatus) freed"
+            // Keep the list live: successfully removed items disappear as they go.
+            if result.success {
+                self?.items.removeAll { $0.path == result.path }
+                self?.selection.remove(result.path)
+            }
+        }
         cleanupResults = results
         let removed = Set(results.filter(\.success).map(\.path))
         items.removeAll { removed.contains($0.path) }
         selection.subtract(removed)
+        isCleaning = false
+        cleaningStatus = ""
     }
 }

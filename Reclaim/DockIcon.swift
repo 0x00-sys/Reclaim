@@ -37,9 +37,12 @@ enum DockIcon {
     }
 
     static func render(dark: Bool, size: CGFloat) -> NSImage {
-        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { canvas in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            let slabPath = CGPath(roundedRect: rect, cornerWidth: size * 0.225, cornerHeight: size * 0.225, transform: nil)
+            // Dock icons carry ~9% transparent margin per side; applicationIconImage
+            // is displayed unmasked, so bake the margin in or the icon looks huge.
+            let rect = canvas.insetBy(dx: canvas.width * 0.09, dy: canvas.height * 0.09)
+            let slabPath = CGPath(roundedRect: rect, cornerWidth: rect.width * 0.225, cornerHeight: rect.width * 0.225, transform: nil)
             ctx.addPath(slabPath)
             ctx.clip()
             let colors = dark

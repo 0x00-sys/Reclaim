@@ -22,6 +22,12 @@ struct ReclaimApp: App {
                         ChipTune.playScanComplete()
                     }
                 }
+                .onChange(of: model.isCleaning) { wasCleaning, isCleaning in
+                    notchHUD.update(model: model)
+                    if wasCleaning && !isCleaning {
+                        ChipTune.playScanComplete()
+                    }
+                }
         }
         .defaultSize(width: 1000, height: 720)
 

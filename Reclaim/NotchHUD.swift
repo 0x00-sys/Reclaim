@@ -155,7 +155,7 @@ final class NotchHUDController {
             object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.model?.isScanning != true else { return }
+                guard let self, self.model?.isScanning != true, self.model?.isCleaning != true else { return }
                 self.hide()
             }
         }
@@ -165,12 +165,12 @@ final class NotchHUDController {
         self.model = model
         let enabled = UserDefaults.standard.object(forKey: "showNotchHUD") as? Bool ?? true
         guard enabled else { hide(); return }
-        if model.isScanning {
+        if model.isScanning || model.isCleaning {
             hideTask?.cancel()
             show(model: model)
         }
-        // When the scan finishes the notch stays put with the results; it
-        // dismisses when the user opens the app or hovers it and moves away.
+        // When work finishes the notch stays put with the results; it dismisses
+        // when the user opens or focuses the app.
     }
 
     /// Brings the main window forward and dismisses the notch.
@@ -282,9 +282,11 @@ struct NotchView: View {
     private var expanded: Bool { viewModel.expanded }
 
     private var closedSize: CGSize {
-        let status = model.isScanning
-            ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-            : "\(model.safeBytes.formattedBytes) safe to clean"
+        let status = model.isCleaning
+            ? model.cleaningStatus
+            : model.isScanning
+                ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
+                : "\(model.safeBytes.formattedBytes) safe to clean"
         let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
         let statusWidth = (status as NSString).size(withAttributes: [.font: font]).width
             + (model.totalBytes.formattedBytes as NSString).size(withAttributes: [.font: font]).width
@@ -387,9 +389,11 @@ struct CollapsedNotchContent: View {
                 PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
                                 palette: model.isScanning ? .blue : .green)
                     .frame(width: 15, height: 13)
-                Text(model.isScanning
-                     ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-                     : "\(model.safeBytes.formattedBytes) safe to clean")
+                Text(model.isCleaning
+                     ? model.cleaningStatus
+                     : model.isScanning
+                         ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
+                         : "\(model.safeBytes.formattedBytes) safe to clean")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -424,14 +428,16 @@ struct ExpandedNotchContent: View {
                 PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
                                 palette: model.isScanning ? .blue : .green)
                     .frame(width: 20, height: 16)
-                Text(model.isScanning
-                     ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-                     : "Scan complete")
+                Text(model.isCleaning
+                     ? model.cleaningStatus
+                     : model.isScanning
+                         ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
+                         : "Scan complete")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .contentTransition(.opacity)
                 Spacer()
-                if model.isScanning {
+                if model.isScanning || model.isCleaning {
                     ProgressView().controlSize(.mini).tint(.white)
                 } else {
                     Button(action: onOpenApp) {
