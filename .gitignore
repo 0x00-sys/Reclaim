@@ -1,0 +1,5 @@
+.DS_Store
+build/
+ReclaimKit/.build/
+xcuserdata/
+*.xcuserstate
