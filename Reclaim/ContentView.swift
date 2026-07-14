@@ -478,17 +478,21 @@ struct GitLogo: View {
     }
 }
 
-/// npm's red square with the white wordmark.
+/// npm's red square icon variant: white "n" glyph drawn as blocks, like the original.
 struct NpmLogo: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(Color(red: 0.76, green: 0.18, blue: 0.16))
-            .overlay {
-                Text("npm")
-                    .font(.system(size: 8, weight: .bold))
-                    .kerning(-0.4)
-                    .foregroundStyle(.white)
-            }
+        Canvas { context, size in
+            let w = size.width
+            let red = Color(red: 0.76, green: 0.18, blue: 0.16)
+            context.fill(Path(roundedRect: CGRect(x: 0, y: 0, width: w, height: w), cornerRadius: w * 0.17),
+                         with: .color(red))
+            // The "n": a white block with a red notch cut from its lower middle.
+            let glyph = CGRect(x: w * 0.28, y: w * 0.30, width: w * 0.44, height: w * 0.44)
+            context.fill(Path(glyph), with: .color(.white))
+            let cut = CGRect(x: glyph.minX + glyph.width * 0.38, y: glyph.midY,
+                             width: glyph.width * 0.24, height: glyph.height / 2)
+            context.fill(Path(cut), with: .color(red))
+        }
     }
 }
 

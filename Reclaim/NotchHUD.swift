@@ -2,76 +2,106 @@ import SwiftUI
 import AppKit
 import ReclaimKit
 
-// MARK: - Shape
+// MARK: - Geometry
 
-/// The classic notch silhouette: concave "ears" at the top corners flaring into
-/// the screen edge, rounded corners at the bottom.
-nonisolated struct NotchShape: Shape {
-    var earRadius: CGFloat = 8
-    var bottomRadius: CGFloat = 12
+enum NotchConstants {
+    /// Size of the expanded card (the window is fixed at this size plus shadow room).
+    static let openSize = CGSize(width: 420, height: 176)
+    static let shadowPadding: CGFloat = 24
+    /// Corner radii, closed → open. The top radius draws the concave "ears".
+    static let closedTopRadius: CGFloat = 6
+    static let closedBottomRadius: CGFloat = 14
+    static let openTopRadius: CGFloat = 19
+    static let openBottomRadius: CGFloat = 24
+    /// Springs: opening is slightly bouncy, closing critically damped.
+    static let openSpring: Animation = .spring(response: 0.42, dampingFraction: 0.8)
+    static let closeSpring: Animation = .spring(response: 0.45, dampingFraction: 1.0)
+    static let hoverOpenDelay: Duration = .milliseconds(300)
+    static let hoverCloseDelay: Duration = .milliseconds(100)
 
-    func path(in rect: CGRect) -> Path {
-        let e = earRadius
-        let r = bottomRadius
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + e, y: rect.minY + e),
-                          control: CGPoint(x: rect.minX + e, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.minX + e, y: rect.maxY - r))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + e + r, y: rect.maxY),
-                          control: CGPoint(x: rect.minX + e, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX - e - r, y: rect.maxY))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - e, y: rect.maxY - r),
-                          control: CGPoint(x: rect.maxX - e, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX - e, y: rect.minY + e))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
-                          control: CGPoint(x: rect.maxX - e, y: rect.minY))
-        path.closeSubpath()
-        return path
+    static var windowSize: NSSize {
+        NSSize(width: openSize.width + shadowPadding * 2,
+               height: openSize.height + shadowPadding)
     }
 }
 
-// MARK: - Geometry
-
-/// Where and how big the notch is on the current screen arrangement.
+/// Closed-notch metrics for a screen.
 struct NotchMetrics: Equatable {
     var hasHardwareNotch: Bool
-    var notchWidth: CGFloat      // visible body width, without ears
-    var topInset: CGFloat        // hardware notch height, or menu bar height when simulated
+    /// Physical notch height, or menu bar height on plain displays.
+    var topInset: CGFloat
+    /// Width of the hardware notch (+ slight overhang to hide the seam), or a
+    /// realistic simulated width on plain displays.
+    var baseWidth: CGFloat
     var screenFrame: NSRect
 
-    static let earRadius: CGFloat = 8
-
-    /// Height of the black area when collapsed. On hardware the content strip
-    /// hangs below the physical notch; on external displays the whole thing is
-    /// barely deeper than the menu bar, like a real notch would be.
-    var collapsedHeight: CGFloat { hasHardwareNotch ? topInset + 24 : topInset + 6 }
-    var collapsedContentTopInset: CGFloat { hasHardwareNotch ? topInset : 0 }
-
-    var expandedSize: CGSize {
-        CGSize(width: max(340, notchWidth + 120),
-               height: (hasHardwareNotch ? topInset : 6) + 148)
-    }
-
     static func detect() -> NotchMetrics? {
+        // Prefer the screen with a real notch; otherwise follow the main screen.
         if let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }),
            let left = screen.auxiliaryTopLeftArea,
            let right = screen.auxiliaryTopRightArea {
             return NotchMetrics(
                 hasHardwareNotch: true,
-                notchWidth: screen.frame.width - left.width - right.width,
                 topInset: screen.safeAreaInsets.top,
+                baseWidth: screen.frame.width - left.width - right.width + 4,
                 screenFrame: screen.frame
             )
         }
         guard let screen = NSScreen.main else { return nil }
-        let menuBar = max(24, screen.frame.maxY - screen.visibleFrame.maxY)
         return NotchMetrics(
             hasHardwareNotch: false,
-            notchWidth: min(220, max(160, screen.frame.width * 0.11)),
-            topInset: menuBar,
+            topInset: max(24, screen.frame.maxY - screen.visibleFrame.maxY),
+            baseWidth: min(220, max(160, screen.frame.width * 0.11)),
             screenFrame: screen.frame
         )
+    }
+
+    /// Closed size. On hardware notches a text strip hangs below the physical
+    /// notch; on plain displays the whole thing is exactly menu-bar deep.
+    func closedSize(fittingStatusWidth statusWidth: CGFloat) -> CGSize {
+        let width = min(max(baseWidth, statusWidth), 340)
+        let height = hasHardwareNotch ? topInset + 24 : topInset
+        return CGSize(width: width, height: height)
+    }
+
+    var closedContentTopInset: CGFloat { hasHardwareNotch ? topInset : 0 }
+    var openContentTopInset: CGFloat { hasHardwareNotch ? topInset : 4 }
+}
+
+// MARK: - Shape
+
+/// Notch silhouette with animatable corner radii: concave quad-curve ears at the
+/// top, convex rounded corners at the bottom.
+nonisolated struct NotchShape: Shape {
+    var topRadius: CGFloat
+    var bottomRadius: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(topRadius, bottomRadius) }
+        set {
+            topRadius = newValue.first
+            bottomRadius = newValue.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let t = topRadius
+        let b = bottomRadius
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + t, y: rect.minY + t),
+                          control: CGPoint(x: rect.minX + t, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + t, y: rect.maxY - b))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + t + b, y: rect.maxY),
+                          control: CGPoint(x: rect.minX + t, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - t - b, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - t, y: rect.maxY - b),
+                          control: CGPoint(x: rect.maxX - t, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - t, y: rect.minY + t))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
+                          control: CGPoint(x: rect.maxX - t, y: rect.minY))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -79,21 +109,21 @@ struct NotchMetrics: Equatable {
 
 @MainActor
 @Observable
-final class NotchState {
+final class NotchViewModel {
     var expanded = false
     var metrics: NotchMetrics?
 }
 
-/// Status panel that behaves like the notch growing downward. The window is
-/// resized instantly; the black shape inside spring-animates between sizes,
-/// which is what makes the expand/collapse feel native.
+/// The window is created once at a fixed size and never resized; every open,
+/// close, and resize animation is SwiftUI layout inside it. Transparent window
+/// regions don't intercept clicks (the hosting view only hit-tests real content).
 @MainActor
 final class NotchHUDController {
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
-    private var shrinkTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
-    private let state = NotchState()
+    private var cachedScreenFrames: Set<NSRect> = []
+    private let viewModel = NotchViewModel()
     private weak var model: AppModel?
 
     init() {
@@ -103,12 +133,6 @@ final class NotchHUDController {
         ) { [weak self] _ in
             Task { @MainActor in self?.screenLayoutChanged() }
         }
-    }
-
-    private func screenLayoutChanged() {
-        guard panel != nil else { return }
-        state.metrics = NotchMetrics.detect()
-        applyWindowFrame()
     }
 
     func update(model: AppModel) {
@@ -122,7 +146,7 @@ final class NotchHUDController {
             hideTask?.cancel()
             hideTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled, self?.state.expanded != true else { return }
+                guard !Task.isCancelled, self?.viewModel.expanded != true else { return }
                 self?.hide()
             }
         }
@@ -130,91 +154,52 @@ final class NotchHUDController {
 
     private func show(model: AppModel) {
         guard let metrics = NotchMetrics.detect() else { return }
-        state.metrics = metrics
+        viewModel.metrics = metrics
         if panel == nil {
             let panel = NSPanel(
-                contentRect: .zero,
-                styleMask: [.borderless, .nonactivatingPanel],
+                contentRect: NSRect(origin: .zero, size: NotchConstants.windowSize),
+                styleMask: [.borderless, .nonactivatingPanel, .utilityWindow, .hudWindow],
                 backing: .buffered,
                 defer: false
             )
-            panel.level = .statusBar
+            panel.isFloatingPanel = true
             panel.isOpaque = false
             panel.backgroundColor = .clear
             panel.hasShadow = false
-            panel.hidesOnDeactivate = false
             panel.isMovable = false
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            panel.contentView = NSHostingView(rootView: NotchHUDView(
-                model: model,
-                state: state,
-                onHover: { [weak self] hovering in self?.setExpanded(hovering) }
-            ))
+            panel.hidesOnDeactivate = false
+            panel.isReleasedWhenClosed = false
+            panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+            panel.collectionBehavior = [.fullScreenAuxiliary, .stationary, .canJoinAllSpaces, .ignoresCycle]
+            panel.contentView = NSHostingView(rootView: NotchHUDRoot(model: model, viewModel: viewModel))
             self.panel = panel
         }
-        applyWindowFrame()
+        position()
         panel?.orderFrontRegardless()
     }
 
-    private func setExpanded(_ expanded: Bool) {
-        guard state.expanded != expanded else { return }
-        shrinkTask?.cancel()
-        if expanded {
-            // Grow the window first (invisible; the panel is transparent),
-            // then let the shape spring into the new room.
-            state.expanded = true
-            applyWindowFrame()
-        } else {
-            state.expanded = false
-            // Let the shape finish collapsing before taking its room away.
-            shrinkTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(350))
-                guard !Task.isCancelled else { return }
-                self?.applyWindowFrame()
-                if let self, let model = self.model, !model.isScanning {
-                    self.update(model: model)
-                }
-            }
-        }
-    }
-
-    private func applyWindowFrame() {
-        guard let panel, let metrics = state.metrics else { return }
-        let ears = NotchMetrics.earRadius * 2
-        let size: NSSize
-        if state.expanded {
-            size = NSSize(width: metrics.expandedSize.width + ears,
-                          height: metrics.expandedSize.height)
-        } else {
-            size = NSSize(width: collapsedWidth(metrics) + ears, height: metrics.collapsedHeight)
-        }
-        panel.setFrame(NSRect(
+    private func position() {
+        guard let panel, let metrics = viewModel.metrics else { return }
+        let size = NotchConstants.windowSize
+        panel.setFrameOrigin(NSPoint(
             x: metrics.screenFrame.midX - size.width / 2,
-            y: metrics.screenFrame.maxY - size.height,
-            width: size.width,
-            height: size.height
-        ), display: true)
+            y: metrics.screenFrame.maxY - size.height
+        ))
     }
 
-    /// Collapsed width hugs the status text but never shrinks below the notch.
-    private func collapsedWidth(_ metrics: NotchMetrics) -> CGFloat {
-        guard let model else { return metrics.notchWidth }
-        let status = model.isScanning
-            ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
-            : "\(model.safeBytes.formattedBytes) safe to clean"
-        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        let width = (status as NSString).size(withAttributes: [.font: font]).width
-            + (model.totalBytes.formattedBytes as NSString).size(withAttributes: [.font: font]).width
-            + 72
-        return max(metrics.notchWidth, min(width, 340))
+    private func screenLayoutChanged() {
+        let frames = Set(NSScreen.screens.map(\.frame))
+        guard frames != cachedScreenFrames else { return }
+        cachedScreenFrames = frames
+        guard panel != nil else { return }
+        viewModel.metrics = NotchMetrics.detect()
+        position()
     }
 
     func hide() {
         hideTask?.cancel()
-        shrinkTask?.cancel()
         hideTask = nil
-        shrinkTask = nil
-        state.expanded = false
+        viewModel.expanded = false
         panel?.orderOut(nil)
         panel = nil
     }
@@ -222,28 +207,94 @@ final class NotchHUDController {
 
 // MARK: - Views
 
-struct NotchHUDView: View {
+struct NotchHUDRoot: View {
     let model: AppModel
-    let state: NotchState
-    let onHover: (Bool) -> Void
+    let viewModel: NotchViewModel
 
     var body: some View {
         Group {
-            if let metrics = state.metrics {
-                VStack(spacing: 0) {
-                    if state.expanded {
-                        ExpandedNotchContent(model: model, metrics: metrics)
-                    } else {
-                        CollapsedNotchContent(model: model, metrics: metrics)
-                    }
-                }
-                .background(NotchShape(earRadius: NotchMetrics.earRadius).fill(.black))
-                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: state.expanded)
-                .contentShape(NotchShape(earRadius: NotchMetrics.earRadius))
-                .onHover(perform: onHover)
+            if let metrics = viewModel.metrics {
+                NotchView(model: model, viewModel: viewModel, metrics: metrics)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+struct NotchView: View {
+    let model: AppModel
+    let viewModel: NotchViewModel
+    let metrics: NotchMetrics
+
+    @State private var hovering = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    private var expanded: Bool { viewModel.expanded }
+
+    private var closedSize: CGSize {
+        let status = model.isScanning
+            ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress)
+            : "\(model.safeBytes.formattedBytes) safe to clean"
+        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let statusWidth = (status as NSString).size(withAttributes: [.font: font]).width
+            + (model.totalBytes.formattedBytes as NSString).size(withAttributes: [.font: font]).width
+            + 70
+        return metrics.closedSize(fittingStatusWidth: statusWidth)
+    }
+
+    var body: some View {
+        let shape = NotchShape(
+            topRadius: expanded ? NotchConstants.openTopRadius : NotchConstants.closedTopRadius,
+            bottomRadius: expanded ? NotchConstants.openBottomRadius : NotchConstants.closedBottomRadius
+        )
+        ZStack(alignment: .top) {
+            Color.black
+            Group {
+                if expanded {
+                    ExpandedNotchContent(model: model, metrics: metrics)
+                        .transition(.scale(scale: 0.8, anchor: .top).combined(with: .opacity))
+                } else {
+                    CollapsedNotchContent(model: model, metrics: metrics)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.smooth(duration: 0.35), value: expanded)
+            // Seals the hairline seam against the physical notch.
+            Rectangle()
+                .fill(.black)
+                .frame(height: 1)
+                .padding(.horizontal, expanded ? NotchConstants.openTopRadius : NotchConstants.closedTopRadius)
+        }
+        .frame(width: expanded ? NotchConstants.openSize.width : closedSize.width,
+               height: expanded ? NotchConstants.openSize.height : closedSize.height)
+        .clipShape(shape)
+        .shadow(color: .black.opacity(expanded ? 0.55 : 0), radius: 6, y: 3)
+        .animation(expanded ? NotchConstants.openSpring : NotchConstants.closeSpring, value: expanded)
+        .contentShape(shape)
+        .onHover(perform: hoverChanged)
+        .onTapGesture {
+            hoverTask?.cancel()
+            viewModel.expanded = true
+        }
+    }
+
+    private func hoverChanged(_ isHovering: Bool) {
+        hovering = isHovering
+        hoverTask?.cancel()
+        if isHovering {
+            guard !expanded else { return }
+            hoverTask = Task {
+                try? await Task.sleep(for: NotchConstants.hoverOpenDelay)
+                guard !Task.isCancelled, hovering, !viewModel.expanded else { return }
+                viewModel.expanded = true
+            }
+        } else {
+            hoverTask = Task {
+                try? await Task.sleep(for: NotchConstants.hoverCloseDelay)
+                guard !Task.isCancelled, !hovering else { return }
+                viewModel.expanded = false
+            }
+        }
     }
 }
 
@@ -253,7 +304,7 @@ struct CollapsedNotchContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: metrics.collapsedContentTopInset)
+            Color.clear.frame(height: metrics.closedContentTopInset)
             HStack(spacing: 6) {
                 PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
                                 palette: model.isScanning ? .blue : .green)
@@ -270,10 +321,9 @@ struct CollapsedNotchContent: View {
                     .foregroundStyle(.white.opacity(0.55))
                     .monospacedDigit()
             }
-            .padding(.horizontal, NotchMetrics.earRadius + 10)
+            .padding(.horizontal, 12)
             .frame(maxHeight: .infinity)
         }
-        .frame(height: metrics.collapsedHeight)
     }
 }
 
@@ -291,7 +341,7 @@ struct ExpandedNotchContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Color.clear.frame(height: metrics.hasHardwareNotch ? metrics.topInset : 2)
+            Color.clear.frame(height: metrics.openContentTopInset)
             HStack(spacing: 8) {
                 PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
                                 palette: model.isScanning ? .blue : .green)
@@ -334,9 +384,9 @@ struct ExpandedNotchContent: View {
                     .foregroundStyle(Color(red: 0.3, green: 0.9, blue: 0.5))
                     .monospacedDigit()
             }
-            .padding(.bottom, 10)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal, NotchMetrics.earRadius + 12)
-        .frame(width: metrics.expandedSize.width, height: metrics.expandedSize.height)
+        .padding(.horizontal, 16)
+        .frame(width: NotchConstants.openSize.width, height: NotchConstants.openSize.height)
     }
 }
