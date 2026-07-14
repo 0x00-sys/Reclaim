@@ -394,15 +394,12 @@ struct FilterPill<Content: View>: View {
                     .font(.caption)
                 Text(label)
                     .font(.callout.weight(.medium))
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
         }
         .menuStyle(.button)
         .buttonStyle(.glass)
+        .menuIndicator(.visible)
+        .controlSize(.large)
         .tint(isActive ? .accentColor : nil)
         .fixedSize()
         .pointerStyle(.link)
