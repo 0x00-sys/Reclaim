@@ -20,7 +20,7 @@ func notchDebugLog(_ message: String) {
 
 enum NotchConstants {
     /// Size of the expanded card (the window is fixed at this size plus shadow room).
-    static let openSize = CGSize(width: 500, height: 172)
+    static let openSize = CGSize(width: 500, height: 180)
     static let shadowPadding: CGFloat = 24
     /// Corner radii, closed → open. The top radius draws the concave "ears".
     static let closedTopRadius: CGFloat = 6
@@ -73,7 +73,7 @@ struct NotchMetrics: Equatable {
     /// Closed size. On hardware notches a text strip hangs below the physical
     /// notch; on plain displays the whole thing is exactly menu-bar deep.
     func closedSize(fittingStatusWidth statusWidth: CGFloat) -> CGSize {
-        let width = min(max(baseWidth, statusWidth), 340)
+        let width = min(max(baseWidth, statusWidth), 360)
         let height = hasHardwareNotch ? topInset + 24 : topInset
         return CGSize(width: width, height: height)
     }
@@ -302,7 +302,7 @@ struct NotchView: View {
         let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
         let statusWidth = (status as NSString).size(withAttributes: [.font: font]).width
             + (model.totalBytes.formattedBytes as NSString).size(withAttributes: [.font: font]).width
-            + 70
+            + 88
         return metrics.closedSize(fittingStatusWidth: statusWidth)
     }
 
@@ -409,7 +409,7 @@ struct CollapsedNotchContent: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.55))
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             .frame(maxHeight: .infinity)
         }
     }
@@ -494,9 +494,11 @@ struct ExpandedNotchContent: View {
                 }
                 .font(.caption2.weight(.semibold))
             }
-            .padding(.bottom, 13)
+            // Keep the footer clear of the bottom corner curves.
+            .padding(.horizontal, 6)
+            .padding(.bottom, 18)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
