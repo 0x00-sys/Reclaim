@@ -770,6 +770,7 @@ extension StorageCategory {
         switch self {
         case .worktree: "arrow.triangle.branch"
         case .nodeModules: "shippingbox"
+        case .buildCache: "wrench.and.screwdriver"
         case .packageCache: "archivebox"
         case .derivedData: "hammer"
         case .archives: "doc.zipper"

@@ -10,6 +10,7 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
     case conductor = "Conductor"
     case cursor = "Cursor"
     case go = "Go"
+    case rust = "Rust"
     case bun = "Bun"
     case homebrew = "Homebrew"
     case playwright = "Playwright"
@@ -21,6 +22,7 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
 public enum StorageCategory: String, Sendable, Codable, CaseIterable, Identifiable {
     case worktree = "Git Worktrees"
     case nodeModules = "node_modules"
+    case buildCache = "Build Caches"
     case packageCache = "Package Caches"
     case derivedData = "Derived Data"
     case archives = "Xcode Archives"

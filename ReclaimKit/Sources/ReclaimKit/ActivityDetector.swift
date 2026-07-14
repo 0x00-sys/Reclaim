@@ -4,14 +4,21 @@ import Foundation
 public struct ProcessSnapshot: Sendable {
     /// Full command lines of running processes.
     public var commandLines: [String]
+    /// Current working directories of running processes: a dev server or agent
+    /// sitting inside a directory rarely has that path in its command line.
+    public var workingDirectories: Set<String>
 
-    public init(commandLines: [String]) {
+    public init(commandLines: [String], workingDirectories: Set<String> = []) {
         self.commandLines = commandLines
+        self.workingDirectories = workingDirectories
     }
 
-    /// True when any running process command line references the given path.
+    /// True when any running process references the path on its command line
+    /// or is currently working inside it.
     public func referencesPath(_ path: String) -> Bool {
-        commandLines.contains { $0.contains(path) }
+        if commandLines.contains(where: { $0.contains(path) }) { return true }
+        let prefix = path.hasSuffix("/") ? path : path + "/"
+        return workingDirectories.contains { $0 == path || $0.hasPrefix(prefix) }
     }
 
     public func hasProcess(named name: String) -> Bool {
@@ -23,9 +30,15 @@ public struct ProcessSnapshot: Sendable {
     }
 
     public static func capture() async -> ProcessSnapshot {
-        guard let result = try? await runSubprocess("/bin/ps", ["-axo", "command"]), result.succeeded else {
-            return ProcessSnapshot(commandLines: [])
-        }
-        return ProcessSnapshot(commandLines: result.stdout.components(separatedBy: "\n"))
+        async let psResult = try? runSubprocess("/bin/ps", ["-axo", "command"])
+        async let cwdResult = try? runSubprocess("/usr/sbin/lsof", ["-w", "-d", "cwd", "-F", "n"], timeout: 15)
+
+        let commandLines = (await psResult)?.stdout.components(separatedBy: "\n") ?? []
+        let workingDirectories = Set(
+            ((await cwdResult)?.stdout.split(separator: "\n") ?? [])
+                .filter { $0.hasPrefix("n") }
+                .map { String($0.dropFirst()) }
+        )
+        return ProcessSnapshot(commandLines: commandLines, workingDirectories: workingDirectories)
     }
 }

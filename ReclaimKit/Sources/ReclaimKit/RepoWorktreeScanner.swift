@@ -21,8 +21,20 @@ public struct RepoWorktreeScanner: StorageScanner {
         var seen: Set<String> = []
         for repo in repos {
             try Task.checkCancellation()
-            let entries = (try? await context.git.listWorktrees(repository: repo.path)) ?? []
-            for entry in entries.dropFirst() { // first entry is the main worktree
+            var entries = (try? await context.git.listWorktrees(repository: repo.path)) ?? []
+            if !entries.isEmpty { entries.removeFirst() } // first entry is the main worktree
+            // Claude Code puts per-project worktrees in <repo>/.claude/worktrees;
+            // include any that lost their registration (orphans) too.
+            let claudeWorktrees = context.fileManager.contentsOfDirectoryIfPresent(
+                repo.appendingPathComponent(".claude/worktrees"), includeHidden: true
+            )
+            for orphan in claudeWorktrees
+            where context.fileManager.directoryExists(orphan)
+                && !entries.contains(where: { canonicalPath($0.path) == canonicalPath(orphan.path) }) {
+                entries.append(GitWorktreeEntry(path: orphan.path, head: nil, branch: nil,
+                                                isMain: false, isLocked: false, isPrunable: false))
+            }
+            for entry in entries {
                 guard !seen.contains(entry.path) else { continue }
                 seen.insert(entry.path)
                 guard context.fileManager.directoryExists(URL(filePath: entry.path)) else {
@@ -39,9 +51,10 @@ public struct RepoWorktreeScanner: StorageScanner {
                     ))
                     continue
                 }
+                let isClaude = entry.path.contains("/.claude/worktrees/")
                 let item = try await inspector.scanItem(
                     at: URL(filePath: entry.path),
-                    tool: .git,
+                    tool: isClaude ? .claudeCode : .git,
                     displayName: "\(repo.lastPathComponent): \(URL(filePath: entry.path).lastPathComponent)",
                     hasActiveProcess: context.processes.referencesPath(entry.path)
                 )

@@ -32,11 +32,11 @@ extension FileManager {
         return fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    func contentsOfDirectoryIfPresent(_ url: URL) -> [URL] {
+    func contentsOfDirectoryIfPresent(_ url: URL, includeHidden: Bool = false) -> [URL] {
         (try? contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
+            options: includeHidden ? [] : [.skipsHiddenFiles]
         )) ?? []
     }
 }
