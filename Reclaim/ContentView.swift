@@ -115,7 +115,8 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingResults) {
-            CleanupResultsView(results: model.cleanupResults)
+            CleanupResultsView()
+                .environment(model)
         }
     }
 

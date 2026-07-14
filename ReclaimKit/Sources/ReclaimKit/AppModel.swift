@@ -136,14 +136,14 @@ public final class AppModel {
         }
     }
 
-    public func clean(_ selected: [ScanItem]) async {
+    public func clean(_ selected: [ScanItem], force: Bool = false) async {
         guard !isCleaning else { return }
         isCleaning = true
         cleaningStatus = "Preparing…"
         var done = 0
         var freed: Int64 = 0
         let total = selected.count
-        let results = await cleanupEngine.clean(items: selected) { [weak self] result in
+        let results = await cleanupEngine.clean(items: selected, force: force) { [weak self] result in
             done += 1
             freed += result.freedBytes ?? 0
             self?.cleaningStatus = "Cleaning \(done) of \(total) · \(freed.formattedBytes) freed"

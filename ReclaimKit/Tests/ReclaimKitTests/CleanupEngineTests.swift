@@ -103,6 +103,46 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: worktree.path))
     }
 
+    @Test func forceCleanOverridesGitStateRefusalsOnly() async throws {
+        let fixture = try await GitFixture.make()
+        defer { fixture.tearDown() }
+        let worktree = try await fixture.addWorktree(name: "feature-force")
+        let item = try await scanItem(for: worktree)
+        try "precious".write(to: worktree.appendingPathComponent("wip.txt"), atomically: true, encoding: .utf8)
+
+        // Normal clean refuses and marks the refusal as force-eligible.
+        let refused = await CleanupEngine().clean(items: [item])
+        #expect(refused[0].success == false)
+        #expect(refused[0].canForce == true)
+        #expect(FileManager.default.fileExists(atPath: worktree.path))
+
+        // Force clean succeeds and prunes the registration.
+        let forced = await CleanupEngine().clean(items: [item], force: true)
+        #expect(forced[0].success == true)
+        #expect(!FileManager.default.fileExists(atPath: worktree.path))
+    }
+
+    @Test func forceNeverRemovesMainOrLockedWorktrees() async throws {
+        let fixture = try await GitFixture.make()
+        defer { fixture.tearDown() }
+
+        var main = try await scanItem(for: fixture.repo)
+        main.safety = .safe
+        main.worktree?.isMainWorktree = false // even a lying item must be refused
+        let mainResult = await CleanupEngine().clean(items: [main], force: true)
+        #expect(mainResult[0].success == false)
+        #expect(mainResult[0].canForce == false)
+        #expect(FileManager.default.fileExists(atPath: fixture.repo.path))
+
+        let locked = try await fixture.addWorktree(name: "feature-forcelock")
+        let lockedItem = try await scanItem(for: locked)
+        try await fixture.git("worktree", "lock", locked.path, cwd: fixture.repo.path)
+        let lockedResult = await CleanupEngine().clean(items: [lockedItem], force: true)
+        #expect(lockedResult[0].success == false)
+        #expect(lockedResult[0].canForce == false)
+        #expect(FileManager.default.fileExists(atPath: locked.path))
+    }
+
     @Test func refusesSubdirectoryOfWorktree() async throws {
         let fixture = try await GitFixture.make()
         defer { fixture.tearDown() }

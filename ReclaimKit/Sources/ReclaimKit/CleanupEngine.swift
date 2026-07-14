@@ -6,7 +6,11 @@ public struct CleanupResult: Sendable, Identifiable {
     public var displayName: String
     public var success: Bool
     public var message: String
-    public var freedBytes: Int64?
+    public var freedBytes: Int64? = nil
+    /// The refusal protects unpushed/uncommitted work; the user may override it
+    /// with an explicit force clean. Hard refusals (main worktree, locked,
+    /// files in use, simulators) never set this.
+    public var canForce: Bool = false
 }
 
 /// Destructive operations live here and nowhere else.
@@ -29,12 +33,13 @@ public actor CleanupEngine {
 
     public func clean(
         items: [ScanItem],
+        force: Bool = false,
         onProgress: (@MainActor @Sendable (CleanupResult) -> Void)? = nil
     ) async -> [CleanupResult] {
         var results: [CleanupResult] = []
         let processes = await ProcessSnapshot.capture()
         for item in items {
-            let result = await clean(item, processes: processes)
+            let result = await clean(item, processes: processes, force: force)
             results.append(result)
             if let onProgress {
                 await onProgress(result)
@@ -48,7 +53,7 @@ public actor CleanupEngine {
         return results
     }
 
-    private func clean(_ item: ScanItem, processes: ProcessSnapshot) async -> CleanupResult {
+    private func clean(_ item: ScanItem, processes: ProcessSnapshot, force: Bool = false) async -> CleanupResult {
         func failure(_ message: String) -> CleanupResult {
             CleanupResult(path: item.path, displayName: item.displayName, success: false, message: message)
         }
@@ -91,14 +96,15 @@ public actor CleanupEngine {
         }
 
         if item.worktree != nil {
-            return await removeWorktree(item)
+            return await removeWorktree(item, force: force)
         }
         return trash(item)
     }
 
-    private func removeWorktree(_ item: ScanItem) async -> CleanupResult {
-        func failure(_ message: String) -> CleanupResult {
-            CleanupResult(path: item.path, displayName: item.displayName, success: false, message: message)
+    private func removeWorktree(_ item: ScanItem, force: Bool = false) async -> CleanupResult {
+        func failure(_ message: String, canForce: Bool = false) -> CleanupResult {
+            CleanupResult(path: item.path, displayName: item.displayName, success: false,
+                          message: message, canForce: canForce)
         }
 
         // The path must be a worktree root itself, not a directory inside one —
@@ -114,20 +120,25 @@ public actor CleanupEngine {
         if state.isMainWorktree {
             return failure("Refused: this is the main worktree of its repository.")
         }
-        if state.hasModifiedFiles {
-            return failure("Refused: the worktree now has uncommitted changes.")
-        }
-        if state.hasUntrackedFiles {
-            return failure("Refused: the worktree now contains untracked files.")
-        }
-        if let unpushed = state.unpushedCommits, unpushed > 0 {
-            return failure("Refused: \(unpushed) commit(s) exist only on this machine.")
-        }
-        if state.repositoryPath != nil && state.unpushedCommits == nil {
-            return failure("Refused: could not verify that all commits are pushed.")
-        }
         if state.isLocked {
+            // git worktree lock is an explicit user protection; force does not override it.
             return failure("Refused: the worktree is locked in git.")
+        }
+        if !force {
+            // These guard unpushed/uncommitted work and may be overridden by an
+            // explicit, double-confirmed force clean. Deletion is still Trash-first.
+            if state.hasModifiedFiles {
+                return failure("Refused: the worktree now has uncommitted changes.", canForce: true)
+            }
+            if state.hasUntrackedFiles {
+                return failure("Refused: the worktree now contains untracked files.", canForce: true)
+            }
+            if let unpushed = state.unpushedCommits, unpushed > 0 {
+                return failure("Refused: \(unpushed) commit(s) exist only on this machine.", canForce: true)
+            }
+            if state.repositoryPath != nil && state.unpushedCommits == nil {
+                return failure("Refused: could not verify that all commits are pushed.", canForce: true)
+            }
         }
 
         var result = trash(item)
