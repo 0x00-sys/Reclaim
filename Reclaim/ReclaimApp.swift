@@ -11,6 +11,7 @@ struct ReclaimApp: App {
         WindowGroup(id: "main") {
             ContentView()
                 .environment(model)
+                .task { DockIcon.install() }
                 .onChange(of: model.lastScanDate) {
                     notchHUD.update(model: model)
                     Task { await NotificationManager.checkAfterScan(model: model) }

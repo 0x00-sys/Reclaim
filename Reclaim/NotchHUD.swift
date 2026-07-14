@@ -173,17 +173,6 @@ final class NotchHUDController {
         // dismisses when the user opens the app or hovers it and moves away.
     }
 
-    /// Called after the user hovered the expanded notch and left it.
-    func hoverEnded() {
-        guard model?.isScanning != true else { return }
-        hideTask?.cancel()
-        hideTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(650))
-            guard !Task.isCancelled else { return }
-            self?.hide()
-        }
-    }
-
     /// Brings the main window forward and dismisses the notch.
     func openApp() {
         NSApp.activate()
@@ -215,8 +204,7 @@ final class NotchHUDController {
             let hosting = NSHostingView(rootView: NotchHUDRoot(
                 model: model,
                 viewModel: viewModel,
-                onOpenApp: { [weak self] in self?.openApp() },
-                onHoverEnd: { [weak self] in self?.hoverEnded() }
+                onOpenApp: { [weak self] in self?.openApp() }
             ))
             // The window must stay at its fixed size; never let SwiftUI resize it.
             hosting.sizingOptions = []
@@ -268,13 +256,12 @@ struct NotchHUDRoot: View {
     let model: AppModel
     let viewModel: NotchViewModel
     let onOpenApp: () -> Void
-    let onHoverEnd: () -> Void
 
     var body: some View {
         Group {
             if let metrics = viewModel.metrics {
                 NotchView(model: model, viewModel: viewModel, metrics: metrics,
-                          onOpenApp: onOpenApp, onHoverEnd: onHoverEnd)
+                          onOpenApp: onOpenApp)
             }
         }
         .frame(width: NotchConstants.windowSize.width,
@@ -288,7 +275,6 @@ struct NotchView: View {
     let viewModel: NotchViewModel
     let metrics: NotchMetrics
     let onOpenApp: () -> Void
-    let onHoverEnd: () -> Void
 
     @State private var hovering = false
     @State private var hoverTask: Task<Void, Never>?
@@ -358,7 +344,11 @@ struct NotchView: View {
         .onHover(perform: hoverChanged)
         .onTapGesture {
             hoverTask?.cancel()
-            viewModel.expanded = true
+            if expanded {
+                onOpenApp()
+            } else {
+                viewModel.expanded = true
+            }
         }
     }
 
@@ -381,7 +371,6 @@ struct NotchView: View {
                 try? await Task.sleep(for: NotchConstants.hoverCloseDelay)
                 guard !Task.isCancelled, !hovering else { return }
                 viewModel.expanded = false
-                onHoverEnd()
             }
         }
     }
