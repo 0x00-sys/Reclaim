@@ -4,10 +4,10 @@ cask "reclaim" do
   version "0.1.0"
   sha256 "REPLACE_WITH_SHA256_FROM_RELEASE"
 
-  url "https://github.com/OWNER/reclaim/releases/download/v#{version}/Reclaim-#{version}.zip"
+  url "https://github.com/0x00-sys/Reclaim/releases/download/v#{version}/Reclaim-#{version}.dmg"
   name "Reclaim"
   desc "Find and safely clean the disk space eaten by git worktrees, caches, and AI coding agents"
-  homepage "https://github.com/OWNER/reclaim"
+  homepage "https://github.com/0x00-sys/Reclaim"
 
   depends_on macos: ">= :tahoe"
 

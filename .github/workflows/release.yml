@@ -19,20 +19,27 @@ jobs:
         run: |
           xcodebuild -project Reclaim.xcodeproj -scheme Reclaim -configuration Release \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -5
-      - name: Zip app
-        id: zip
+      - name: Ad-hoc sign
+        run: |
+          codesign --force --deep --sign - "build/Build/Products/Release/Reclaim.app"
+          codesign --verify --verbose=2 "build/Build/Products/Release/Reclaim.app"
+      - name: Package DMG
+        id: dmg
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          ditto -c -k --keepParent "build/Build/Products/Release/Reclaim.app" "Reclaim-$VERSION.zip"
-          echo "asset=Reclaim-$VERSION.zip" >> "$GITHUB_OUTPUT"
-          shasum -a 256 "Reclaim-$VERSION.zip"
+          STAGING="$(mktemp -d)"
+          cp -R "build/Build/Products/Release/Reclaim.app" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "Reclaim" -srcfolder "$STAGING" -ov -format UDZO "Reclaim-$VERSION.dmg"
+          echo "asset=Reclaim-$VERSION.dmg" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "Reclaim-$VERSION.dmg"
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.zip.outputs.asset }}
+          files: ${{ steps.dmg.outputs.asset }}
           generate_release_notes: true
       - name: Print cask checksum
         run: |
           echo "Update homebrew-tap/Casks/reclaim.rb with:"
           echo "  version \"${GITHUB_REF_NAME#v}\""
-          shasum -a 256 ${{ steps.zip.outputs.asset }} | awk '{print "  sha256 \"" $1 "\""}'
+          shasum -a 256 ${{ steps.dmg.outputs.asset }} | awk '{print "  sha256 \"" $1 "\""}'
