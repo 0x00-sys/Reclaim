@@ -34,6 +34,39 @@ public final class AppModel {
                 .map { home.appendingPathComponent($0).path }
                 .filter { FileManager.default.fileExists(atPath: $0) }
         }
+        loadSnapshot()
+    }
+
+    // MARK: Scan snapshot (last results survive relaunch; a few hundred KB of JSON)
+
+    private struct Snapshot: Codable {
+        var date: Date
+        var items: [ScanItem]
+    }
+
+    private static let snapshotURL: URL = {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Reclaim", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("last-scan.json")
+    }()
+
+    private func saveSnapshot() {
+        guard let date = lastScanDate else { return }
+        if let data = try? JSONEncoder().encode(Snapshot(date: date, items: items)) {
+            try? data.write(to: Self.snapshotURL, options: .atomic)
+        }
+    }
+
+    /// Restores the previous scan on launch. Verdicts may be stale, but every
+    /// destructive path re-verifies at deletion time, so acting on them is safe.
+    private func loadSnapshot() {
+        guard items.isEmpty,
+              let data = try? Data(contentsOf: Self.snapshotURL),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data)
+        else { return }
+        items = snapshot.items
+        lastScanDate = snapshot.date
     }
 
     public var totalBytes: Int64 { items.totalSizeBytes }
@@ -69,6 +102,7 @@ public final class AppModel {
             isScanning = false
             lastScanDate = .now
             scanTask = nil
+            saveSnapshot()
         }
     }
 
@@ -157,5 +191,6 @@ public final class AppModel {
         cleanupResults = results
         isCleaning = false
         cleaningStatus = ""
+        saveSnapshot()
     }
 }
