@@ -9,14 +9,20 @@ struct ContentView: View {
     @State private var expandedItem: String?
     @State private var confirmingCleanup = false
     @State private var showingResults = false
+    @State private var excludedTools: Set<Tool> = []
     @AppStorage("showSmallItems") private var showSmallItems = false
+    @AppStorage("minIdleSeconds") private var minIdleSeconds = 0.0
 
     static let smallItemThreshold: Int64 = 10_000_000 // 10 MB
 
     var matchingItems: [ScanItem] {
-        model.items.filter { item in
+        let idleCutoff = minIdleSeconds > 0 ? Date.now.addingTimeInterval(-minIdleSeconds) : nil
+        return model.items.filter { item in
             (categoryFilter == nil || item.category == categoryFilter)
                 && (safetyFilter == nil || item.safety == safetyFilter)
+                && !excludedTools.contains(item.tool)
+                // Recently touched things are excluded from view AND from cleaning.
+                && (idleCutoff == nil || item.lastActivity == nil || item.lastActivity! <= idleCutoff!)
                 && (searchText.isEmpty
                     || item.displayName.localizedCaseInsensitiveContains(searchText)
                     || item.path.localizedCaseInsensitiveContains(searchText))
@@ -56,10 +62,10 @@ struct ContentView: View {
                             model.selection = Set(filteredItems.filter { $0.safety == .safe }.map(\.id))
                             confirmingCleanup = true
                         })
-                        VStack(spacing: 8) {
-                            CategoryChips(selection: $categoryFilter)
-                            SafetyChips(selection: $safetyFilter)
-                        }
+                        FilterBar(categoryFilter: $categoryFilter,
+                                  safetyFilter: $safetyFilter,
+                                  excludedTools: $excludedTools,
+                                  minIdleSeconds: $minIdleSeconds)
                         ItemCardList(items: filteredItems, expandedItem: $expandedItem,
                                      onCleanSingle: { item in
                                          model.selection = [item.id]
@@ -257,95 +263,152 @@ struct DotSeparator: View {
     }
 }
 
-// MARK: - Filter chips
+// MARK: - Filter bar
 
-struct CategoryChips: View {
+/// One compact row of dropdown pills replacing the two chip rows.
+struct FilterBar: View {
     @Environment(AppModel.self) private var model
-    @Binding var selection: StorageCategory?
+    @Binding var categoryFilter: StorageCategory?
+    @Binding var safetyFilter: Safety?
+    @Binding var excludedTools: Set<Tool>
+    @Binding var minIdleSeconds: Double
+
+    static let idleOptions: [(label: String, seconds: Double)] = [
+        ("Any age", 0),
+        ("Idle 1+ hour", 3_600),
+        ("Idle 24+ hours", 86_400),
+        ("Idle 3+ days", 3 * 86_400),
+        ("Idle 7+ days", 7 * 86_400),
+    ]
+
+    private var presentTools: [Tool] {
+        Tool.allCases.filter { tool in model.items.contains { $0.tool == tool } }
+    }
+
+    private var hasActiveFilter: Bool {
+        categoryFilter != nil || safetyFilter != nil || !excludedTools.isEmpty || minIdleSeconds > 0
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Chip(title: "Everything", icon: "internaldrive",
-                     subtitle: model.totalBytes.formattedBytes,
-                     isSelected: selection == nil) { selection = nil }
+        HStack(spacing: 8) {
+            FilterPill(label: categoryFilter?.rawValue ?? "Everything",
+                       icon: categoryFilter?.systemImage ?? "internaldrive",
+                       isActive: categoryFilter != nil) {
+                Button("Everything") { categoryFilter = nil }
+                Divider()
                 ForEach(StorageCategory.allCases) { category in
-                    let items = model.items.filter { $0.category == category }
-                    if !items.isEmpty {
-                        Chip(title: category.rawValue,
-                             icon: category.systemImage,
-                             subtitle: items.compactMap(\.sizeBytes).reduce(0, +).formattedBytes,
-                             isSelected: selection == category) {
-                            selection = selection == category ? nil : category
+                    let bytes = model.items.filter { $0.category == category }.compactMap(\.sizeBytes).reduce(0, +)
+                    if model.items.contains(where: { $0.category == category }) {
+                        Toggle(isOn: Binding(
+                            get: { categoryFilter == category },
+                            set: { categoryFilter = $0 ? category : nil }
+                        )) {
+                            Label("\(category.rawValue)  ·  \(bytes.formattedBytes)", systemImage: category.systemImage)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 4)
-        }
-    }
-}
 
-struct SafetyChips: View {
-    @Environment(AppModel.self) private var model
-    @Binding var selection: Safety?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(Safety.allCases) { safety in
-                let count = model.items.filter { $0.safety == safety }.count
-                if count > 0 {
-                    Chip(title: safety.rawValue, icon: nil, subtitle: "\(count)",
-                         tint: safety.color,
-                         isSelected: selection == safety) {
-                        selection = selection == safety ? nil : safety
+            FilterPill(label: toolsLabel, icon: "app.connected.to.app.below.fill",
+                       isActive: !excludedTools.isEmpty) {
+                Button("Include all tools") { excludedTools = [] }
+                Divider()
+                ForEach(presentTools) { tool in
+                    Toggle(isOn: Binding(
+                        get: { !excludedTools.contains(tool) },
+                        set: { included in
+                            if included { excludedTools.remove(tool) } else { excludedTools.insert(tool) }
+                        }
+                    )) {
+                        Text(tool.rawValue)
                     }
+                }
+            }
+
+            FilterPill(label: safetyFilter?.rawValue ?? "Any status", icon: "checkmark.shield",
+                       isActive: safetyFilter != nil) {
+                Button("Any status") { safetyFilter = nil }
+                Divider()
+                ForEach(Safety.allCases) { safety in
+                    let count = model.items.filter { $0.safety == safety }.count
+                    if count > 0 {
+                        Toggle(isOn: Binding(
+                            get: { safetyFilter == safety },
+                            set: { safetyFilter = $0 ? safety : nil }
+                        )) {
+                            Text("\(safety.rawValue)  ·  \(count)")
+                        }
+                    }
+                }
+            }
+
+            FilterPill(label: idleLabel, icon: "clock",
+                       isActive: minIdleSeconds > 0) {
+                ForEach(Self.idleOptions, id: \.seconds) { option in
+                    Toggle(isOn: Binding(
+                        get: { minIdleSeconds == option.seconds },
+                        set: { if $0 { minIdleSeconds = option.seconds } }
+                    )) {
+                        Text(option.label)
+                    }
+                }
+            }
+
+            if hasActiveFilter {
+                HoverTextButton(title: "Reset") {
+                    categoryFilter = nil
+                    safetyFilter = nil
+                    excludedTools = []
+                    minIdleSeconds = 0
                 }
             }
             Spacer()
         }
     }
+
+    private var toolsLabel: String {
+        switch excludedTools.count {
+        case 0: "All tools"
+        case 1: "No \(excludedTools.first!.rawValue)"
+        default: "\(excludedTools.count) tools excluded"
+        }
+    }
+
+    private var idleLabel: String {
+        Self.idleOptions.first { $0.seconds == minIdleSeconds }?.label ?? "Any age"
+    }
 }
 
-struct Chip: View {
-    var title: String
-    var icon: String?
-    var subtitle: String?
-    var tint: Color = .accentColor
-    var isSelected: Bool
-    var action: () -> Void
-    @State private var hovering = false
+struct FilterPill<Content: View>: View {
+    var label: String
+    var icon: String
+    var isActive: Bool
+    @ViewBuilder var content: Content
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.caption)
-                }
-                Text(title)
+        Menu {
+            content
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.caption)
+                Text(label)
                     .font(.callout.weight(.medium))
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(isSelected ? .primary : .secondary)
-                        .monospacedDigit()
-                }
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .contentShape(Capsule())
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
         }
-        .buttonStyle(.plain)
-        .glassEffect(isSelected ? .regular.tint(tint.opacity(0.55)).interactive() : .regular.interactive(),
-                     in: .capsule)
-        .scaleEffect(hovering && !isSelected ? 1.04 : 1)
-        .animation(.snappy(duration: 0.15), value: hovering)
-        .onHover { hovering = $0 }
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .tint(isActive ? .accentColor : nil)
+        .fixedSize()
         .pointerStyle(.link)
     }
 }
+
 
 // MARK: - Item cards
 
