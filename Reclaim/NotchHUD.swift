@@ -2,59 +2,6 @@ import SwiftUI
 import AppKit
 import ReclaimKit
 
-// MARK: - Pixel sprite
-
-/// Tiny two-frame pixel creature in the Vibe Island spirit.
-struct PixelSpriteView: View {
-    enum Palette { case blue, green }
-    var palette: Palette = .blue
-
-    private static let frames: [[String]] = [
-        [
-            "..#..#..",
-            ".######.",
-            "##.##.##",
-            "########",
-            "#.####.#",
-            "#.#..#.#",
-            "..#..#..",
-        ],
-        [
-            "..#..#..",
-            ".######.",
-            "##.##.##",
-            "########",
-            "#.####.#",
-            ".#....#.",
-            "#..##..#",
-        ],
-    ]
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { timeline in
-            let frame = Int(timeline.date.timeIntervalSinceReferenceDate * 2) % 2
-            Canvas { context, size in
-                let art = Self.frames[frame]
-                let rows = art.count
-                let cols = art[0].count
-                let cell = min(size.width / CGFloat(cols), size.height / CGFloat(rows))
-                let xOffset = (size.width - cell * CGFloat(cols)) / 2
-                let yOffset = (size.height - cell * CGFloat(rows)) / 2
-                let color: Color = palette == .blue ? Color(red: 0.35, green: 0.62, blue: 1) : Color(red: 0.3, green: 0.9, blue: 0.5)
-                for (row, line) in art.enumerated() {
-                    for (col, char) in line.enumerated() where char == "#" {
-                        let rect = CGRect(x: xOffset + CGFloat(col) * cell,
-                                          y: yOffset + CGFloat(row) * cell,
-                                          width: cell * 0.92, height: cell * 0.92)
-                        context.fill(Path(rect), with: .color(color))
-                    }
-                }
-            }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Notch panel
 
 /// Compact status panel that hugs the notch while a scan or cleanup is running.
@@ -81,11 +28,45 @@ final class NotchHUDController {
         }
     }
 
+    /// The panel matches the physical notch: exactly its width, extending a thin
+    /// info strip below it, so it reads as the notch growing downward.
+    private struct Geometry {
+        var screen: NSScreen
+        var width: CGFloat
+        var notchHeight: CGFloat
+        var stripHeight: CGFloat = 26
+
+        var size: NSSize { NSSize(width: width, height: notchHeight + stripHeight) }
+
+        static func detect() -> Geometry? {
+            // A real notch: match its exact hardware dimensions.
+            if let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }),
+               let left = screen.auxiliaryTopLeftArea,
+               let right = screen.auxiliaryTopRightArea {
+                return Geometry(
+                    screen: screen,
+                    width: screen.frame.width - left.width - right.width,
+                    notchHeight: screen.safeAreaInsets.top
+                )
+            }
+            // External displays have no notch, so draw one where it would be:
+            // flush with the top edge, cutting into the menu bar. Real MacBook
+            // notches are ~12.5% of the screen width and exactly menu-bar deep.
+            guard let screen = NSScreen.main else { return nil }
+            let menuBarHeight = max(24, screen.frame.maxY - screen.visibleFrame.maxY)
+            return Geometry(
+                screen: screen,
+                width: min(240, max(170, screen.frame.width * 0.125)),
+                notchHeight: menuBarHeight
+            )
+        }
+    }
+
     private func show(model: AppModel) {
+        guard let geometry = Geometry.detect() else { return }
         if panel == nil {
-            let size = NSSize(width: 360, height: 44)
             let panel = NSPanel(
-                contentRect: NSRect(origin: .zero, size: size),
+                contentRect: NSRect(origin: .zero, size: geometry.size),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -93,27 +74,22 @@ final class NotchHUDController {
             panel.level = .statusBar
             panel.isOpaque = false
             panel.backgroundColor = .clear
-            panel.hasShadow = true
+            panel.hasShadow = false
             panel.hidesOnDeactivate = false
             panel.isMovable = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            panel.contentView = NSHostingView(rootView: NotchHUDView(model: model))
             self.panel = panel
         }
-        position()
-        panel?.orderFrontRegardless()
-    }
-
-    private func position() {
-        guard let panel else { return }
-        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
-        guard let screen else { return }
-        let frame = screen.frame
-        let size = panel.frame.size
-        panel.setFrameOrigin(NSPoint(
-            x: frame.midX - size.width / 2,
-            y: frame.maxY - size.height
+        panel?.setContentSize(geometry.size)
+        panel?.contentView = NSHostingView(rootView: NotchHUDView(model: model, stripHeight: geometry.stripHeight))
+        let frame = geometry.screen.frame
+        // Always flush with the top edge: behind the hardware notch on built-in
+        // displays, over the menu bar (as a drawn notch) on external ones.
+        panel?.setFrameOrigin(NSPoint(
+            x: frame.midX - geometry.size.width / 2,
+            y: frame.maxY - geometry.size.height
         ))
+        panel?.orderFrontRegardless()
     }
 
     func hide() {
@@ -126,36 +102,55 @@ final class NotchHUDController {
 
 struct NotchHUDView: View {
     let model: AppModel
+    let stripHeight: CGFloat
+
+    private var status: String {
+        if model.isScanning {
+            return model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress
+        }
+        return "\(model.safeBytes.formattedBytes) safe to clean"
+    }
+
+    private var sprite: some View {
+        PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
+                        palette: model.isScanning ? .blue : .green)
+            .frame(width: 16, height: 14)
+    }
+
+    private var statusText: some View {
+        Text(status)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            PixelSpriteView(palette: model.isScanning ? .blue : .green)
-                .frame(width: 26, height: 22)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(model.isScanning ? (model.scanProgress.isEmpty ? "Scanning…" : model.scanProgress) : "Scan complete")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("\(model.totalBytes.formattedBytes) found · \(model.safeBytes.formattedBytes) safe")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .monospacedDigit()
+        VStack(spacing: 0) {
+            Spacer(minLength: 0) // hidden behind the hardware notch
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    sprite
+                    statusText
+                    Spacer(minLength: 4)
+                    Text(model.totalBytes.formattedBytes)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .monospacedDigit()
+                }
+                HStack(spacing: 6) {
+                    sprite
+                    statusText
+                    Spacer(minLength: 0)
+                }
             }
-            Spacer(minLength: 0)
-            if model.isScanning {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color(red: 0.3, green: 0.9, blue: 0.5))
-            }
+            .padding(.horizontal, 12)
+            .frame(height: stripHeight - 4)
+            .padding(.bottom, 4)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 2)
-        .frame(width: 360, height: 44)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18)
+            UnevenRoundedRectangle(bottomLeadingRadius: 11, bottomTrailingRadius: 11)
                 .fill(.black)
         )
     }

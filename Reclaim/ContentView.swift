@@ -297,10 +297,8 @@ struct ItemCard: View {
                 .disabled(!selectable)
                 .opacity(selectable ? 1 : 0.25)
 
-                Image(systemName: item.category.systemImage)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22)
+                ToolIconView(tool: item.tool, category: item.category)
+                    .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.displayName)
@@ -351,6 +349,25 @@ struct ItemCard: View {
                 .strokeBorder(isSelected ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.06),
                               lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.05), radius: 4, y: 1)
+    }
+}
+
+struct ToolIconView: View {
+    let tool: Tool
+    let category: StorageCategory
+
+    var body: some View {
+        if let icon = AppIconProvider.icon(for: tool) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else {
+            Image(systemName: category.systemImage)
+                .font(.body)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -392,8 +409,17 @@ struct ItemDetail: View {
             }
 
             HStack(spacing: 8) {
-                Button("Reveal in Finder", systemImage: "folder") {
+                Button {
                     NSWorkspace.shared.activateFileViewerSelecting([item.url])
+                } label: {
+                    Label {
+                        Text("Reveal in Finder")
+                    } icon: {
+                        Image(nsImage: AppIconProvider.finder)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 16, height: 16)
+                    }
                 }
                 .buttonStyle(.glass)
 

@@ -26,7 +26,8 @@ public struct ConductorScanner: StorageScanner {
                     aliasedTargets.insert(
                         URL(filePath: destination, relativeTo: repoDir).standardizedFileURL.lastPathComponent
                     )
-                } else if fm.directoryExists(entry) {
+                } else if fm.directoryExists(entry),
+                          WorktreeInspector.isLinkedWorktree(entry) || WorktreeInspector.isMainRepository(entry) {
                     workspaceDirs.append(entry)
                 }
             }

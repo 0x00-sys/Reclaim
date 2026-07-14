@@ -7,6 +7,8 @@ public final class AppModel {
     public private(set) var items: [ScanItem] = []
     public private(set) var isScanning = false
     public private(set) var scanProgress = ""
+    /// Tool whose storage is being scanned right now (drives the notch sprite).
+    public private(set) var currentTool: Tool?
     public private(set) var lastScanDate: Date?
     public private(set) var cleanupResults: [CleanupResult] = []
     public var selection: Set<String> = []
@@ -59,21 +61,22 @@ public final class AppModel {
             processes: await ProcessSnapshot.capture(),
             projectRoots: projectRoots.map { URL(filePath: $0) }
         )
-        let scanners: [any StorageScanner] = [
-            CodexScanner(),
-            ConductorScanner(),
-            RepoWorktreeScanner(),
-            NodeModulesScanner(),
-            PackageCacheScanner(),
-            XcodeScanner(),
-            ClaudeCodeScanner(),
-            CursorScanner(),
+        let scanners: [(scanner: any StorageScanner, tool: Tool?)] = [
+            (CodexScanner(), .codex),
+            (ConductorScanner(), .conductor),
+            (RepoWorktreeScanner(), .git),
+            (NodeModulesScanner(), .npm),
+            (PackageCacheScanner(), .pnpm),
+            (XcodeScanner(), .xcode),
+            (ClaudeCodeScanner(), .claudeCode),
+            (CursorScanner(), .cursor),
         ]
 
         var collected: [ScanItem] = []
-        for scanner in scanners {
+        for (scanner, tool) in scanners {
             if Task.isCancelled { return }
             scanProgress = "Scanning \(scanner.name)…"
+            currentTool = tool
             do {
                 collected.append(contentsOf: try await scanner.scan(context: context))
             } catch is CancellationError {
@@ -86,6 +89,7 @@ public final class AppModel {
         items = deduplicate(collected)
 
         scanProgress = "Measuring sizes…"
+        currentTool = nil
         await measureSizes()
         items.sort { ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }
         scanProgress = ""

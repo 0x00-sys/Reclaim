@@ -86,6 +86,12 @@ public actor CleanupEngine {
             CleanupResult(path: item.path, displayName: item.displayName, success: false, message: message)
         }
 
+        // The path must be a worktree root itself, not a directory inside one —
+        // git resolves subdirectories to the enclosing worktree, which would make
+        // the checks below pass while we delete only part of it.
+        guard WorktreeInspector.isLinkedWorktree(item.url) || WorktreeInspector.isMainRepository(item.url) else {
+            return failure("Refused: not the root of a git worktree.")
+        }
         // Re-inspect right now; the scan result may be stale.
         guard let state = try? await WorktreeInspector(git: git).inspect(item.url) else {
             return failure("Refused: could not re-inspect the worktree.")

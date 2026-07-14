@@ -21,11 +21,22 @@ public struct CodexScanner: StorageScanner {
         let inspector = WorktreeInspector(git: context.git)
         var items: [ScanItem] = []
 
-        // Worktrees: outer id dir wraps a single repo-named worktree.
+        // Worktrees: an outer id dir usually wraps a single repo-named worktree,
+        // but some entries are the worktree directly. Only directories whose own
+        // root has a .git entry are worktrees; never descend past one.
         let worktreesRoot = root.appendingPathComponent("worktrees")
         for outer in context.fileManager.contentsOfDirectoryIfPresent(worktreesRoot) where context.fileManager.directoryExists(outer) {
             try Task.checkCancellation()
-            for inner in context.fileManager.contentsOfDirectoryIfPresent(outer) where context.fileManager.directoryExists(inner) {
+            let candidates: [URL]
+            if WorktreeInspector.isLinkedWorktree(outer) || WorktreeInspector.isMainRepository(outer) {
+                candidates = [outer]
+            } else {
+                candidates = context.fileManager.contentsOfDirectoryIfPresent(outer).filter {
+                    context.fileManager.directoryExists($0)
+                        && (WorktreeInspector.isLinkedWorktree($0) || WorktreeInspector.isMainRepository($0))
+                }
+            }
+            for inner in candidates {
                 let thread = threads[inner.path] ?? threads[outer.path]
                 let sessionRecent = (thread?.updatedAt).map {
                     Date.now.timeIntervalSince($0) < Self.activeSessionWindow
@@ -33,7 +44,9 @@ public struct CodexScanner: StorageScanner {
                 var item = try await inspector.scanItem(
                     at: inner,
                     tool: .codex,
-                    displayName: "\(outer.lastPathComponent)/\(inner.lastPathComponent)",
+                    displayName: inner == outer
+                        ? inner.lastPathComponent
+                        : "\(outer.lastPathComponent)/\(inner.lastPathComponent)",
                     hasActiveProcess: context.processes.referencesPath(inner.path),
                     hasActiveSession: codexRunning && sessionRecent && thread?.archived == false
                 )

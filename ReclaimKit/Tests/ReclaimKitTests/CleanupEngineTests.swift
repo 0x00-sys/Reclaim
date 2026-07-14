@@ -103,6 +103,22 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: worktree.path))
     }
 
+    @Test func refusesSubdirectoryOfWorktree() async throws {
+        let fixture = try await GitFixture.make()
+        defer { fixture.tearDown() }
+        let worktree = try await fixture.addWorktree(name: "feature-subdir")
+        let subdir = worktree.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        // git resolves subdir to the worktree, so a naive engine would see "clean" and trash it.
+        var item = try await scanItem(for: subdir)
+        item.safety = .safe
+
+        let results = await CleanupEngine().clean(items: [item])
+        #expect(results[0].success == false)
+        #expect(results[0].message.contains("not the root"))
+        #expect(FileManager.default.fileExists(atPath: subdir.path))
+    }
+
     @Test func refusesSimulatorCategory() async throws {
         let dir = URL(filePath: NSTemporaryDirectory()).appendingPathComponent("reclaim-sim-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
