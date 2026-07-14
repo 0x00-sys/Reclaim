@@ -28,8 +28,8 @@ enum NotchConstants {
     static let openTopRadius: CGFloat = 19
     static let openBottomRadius: CGFloat = 24
     /// Springs: opening is slightly bouncy, closing critically damped.
-    static let openSpring: Animation = .spring(response: 0.42, dampingFraction: 0.8)
-    static let closeSpring: Animation = .spring(response: 0.45, dampingFraction: 1.0)
+    static let openSpring: Animation = .spring(response: 0.32, dampingFraction: 0.8)
+    static let closeSpring: Animation = .spring(response: 0.34, dampingFraction: 1.0)
     static let hoverOpenDelay: Duration = .milliseconds(300)
     static let hoverCloseDelay: Duration = .milliseconds(100)
 
@@ -277,15 +277,19 @@ struct NotchView: View {
             bottomRadius: expanded ? NotchConstants.openBottomRadius : NotchConstants.closedBottomRadius
         )
         // Both states are always present and crossfade; structural swaps restart
-        // transitions and caused visible mid-animation freezes.
+        // transitions and caused visible mid-animation freezes. Each content is
+        // pinned at its own final size so nothing reflows while the card frame
+        // springs — the card just grows/shrinks over static content.
         ZStack(alignment: .top) {
             CollapsedNotchContent(model: model, metrics: metrics)
+                .frame(width: closedSize.width, height: closedSize.height)
                 .opacity(expanded ? 0 : 1)
             ExpandedNotchContent(model: model, metrics: metrics)
-                .scaleEffect(expanded ? 1 : 0.8, anchor: .top)
+                .frame(width: NotchConstants.openSize.width, height: NotchConstants.openSize.height)
+                .scaleEffect(expanded ? 1 : 0.85, anchor: .top)
                 .opacity(expanded ? 1 : 0)
         }
-        .animation(.smooth(duration: 0.3), value: expanded)
+        .animation(.smooth(duration: 0.22), value: expanded)
         // The card frame is the single source of truth for size; content always
         // fills it and can never overflow it.
         .frame(width: expanded ? NotchConstants.openSize.width : closedSize.width,
