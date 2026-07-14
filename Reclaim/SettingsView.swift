@@ -16,11 +16,13 @@ struct GeneralSettings: View {
     @AppStorage("scanOnLaunch") private var scanOnLaunch = false
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra = false
     @AppStorage("showNotchHUD") private var showNotchHUD = true
+    @AppStorage("playSounds") private var playSounds = true
 
     var body: some View {
         Form {
             Section("Scanning") {
                 Toggle("Scan automatically at launch", isOn: $scanOnLaunch)
+                Toggle("Play a chime when scanning finishes", isOn: $playSounds)
             }
             Section("Status") {
                 Toggle("Show status in menu bar", isOn: $showMenuBarExtra)

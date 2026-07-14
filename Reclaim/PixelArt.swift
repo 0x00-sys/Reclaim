@@ -252,9 +252,16 @@ enum AppIconProvider {
 
     @MainActor static func icon(for tool: Tool) -> NSImage? {
         if let cached = cache[tool] { return cached }
-        let image = (candidates[tool] ?? [])
+        var image = (candidates[tool] ?? [])
             .first { FileManager.default.fileExists(atPath: $0) }
             .map { NSWorkspace.shared.icon(forFile: $0) }
+        if image == nil,
+           let url = ToolIntegration.promptURL(tool: tool, prompt: "x"),
+           let handler = NSWorkspace.shared.urlForApplication(toOpen: url) {
+            // CLI-only tools (like Claude Code) register a helper app for their
+            // URL scheme; borrow that app's icon.
+            image = NSWorkspace.shared.icon(forFile: handler.path)
+        }
         cache[tool] = image
         return image
     }

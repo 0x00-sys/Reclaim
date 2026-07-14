@@ -368,10 +368,9 @@ struct CollapsedNotchContent: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 6)
-                Text(model.totalBytes.formattedBytes)
+                RollingBytesText(bytes: model.totalBytes)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.55))
-                    .monospacedDigit()
             }
             .padding(.horizontal, 12)
             .frame(maxHeight: .infinity)
@@ -392,9 +391,9 @@ struct ExpandedNotchContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Color.clear.frame(height: metrics.openContentTopInset)
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(height: metrics.openContentTopInset + 6)
+            HStack(spacing: 9) {
                 PixelSpriteView(tool: model.isScanning ? model.currentTool : nil,
                                 palette: model.isScanning ? .blue : .green)
                     .frame(width: 20, height: 16)
@@ -403,42 +402,66 @@ struct ExpandedNotchContent: View {
                      : "Scan complete")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
+                    .contentTransition(.opacity)
                 Spacer()
                 if model.isScanning {
                     ProgressView().controlSize(.mini).tint(.white)
                 }
             }
-            Divider().overlay(.white.opacity(0.15))
-            ForEach(categories, id: \.0) { category, size in
-                HStack(spacing: 8) {
-                    Image(systemName: category.systemImage)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .frame(width: 14)
-                    Text(category.rawValue)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.85))
-                    Spacer()
-                    Text(size.formattedBytes)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
+            .padding(.bottom, 9)
+            Divider().overlay(.white.opacity(0.14))
+                .padding(.bottom, 9)
+            VStack(spacing: 8) {
+                ForEach(categories, id: \.0) { category, size in
+                    HStack(spacing: 9) {
+                        Image(systemName: category.systemImage)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .frame(width: 15)
+                        Text(category.rawValue)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.85))
+                        Spacer()
+                        RollingBytesText(bytes: size)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white)
+                    }
                 }
             }
-            Spacer(minLength: 2)
-            HStack {
+            Spacer(minLength: 4)
+            HStack(alignment: .firstTextBaseline) {
                 Text("\(model.items.count) items")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.5))
-                Spacer()
-                Text("\(model.safeBytes.formattedBytes) safe of \(model.totalBytes.formattedBytes)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color(red: 0.3, green: 0.9, blue: 0.5))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(model.items.count)))
+                    .animation(.snappy(duration: 0.3), value: model.items.count)
+                Spacer()
+                HStack(spacing: 4) {
+                    RollingBytesText(bytes: model.safeBytes)
+                        .foregroundStyle(Color(red: 0.3, green: 0.9, blue: 0.5))
+                    Text("safe of")
+                        .foregroundStyle(.white.opacity(0.45))
+                    RollingBytesText(bytes: model.totalBytes)
+                        .foregroundStyle(Color(red: 0.3, green: 0.9, blue: 0.5))
+                }
+                .font(.caption2.weight(.semibold))
             }
-            .padding(.bottom, 11)
+            .padding(.bottom, 13)
         }
-        .padding(.horizontal, 26)
+        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Byte count with rolling-digit animation whenever the value changes.
+struct RollingBytesText: View {
+    let bytes: Int64
+
+    var body: some View {
+        Text(bytes.formattedBytes)
+            .monospacedDigit()
+            .contentTransition(.numericText(value: Double(bytes)))
+            .animation(.snappy(duration: 0.35), value: bytes)
     }
 }

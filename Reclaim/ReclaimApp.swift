@@ -15,8 +15,11 @@ struct ReclaimApp: App {
                     notchHUD.update(model: model)
                     Task { await NotificationManager.checkAfterScan(model: model) }
                 }
-                .onChange(of: model.isScanning) {
+                .onChange(of: model.isScanning) { wasScanning, isScanning in
                     notchHUD.update(model: model)
+                    if wasScanning && !isScanning && model.lastScanDate != nil {
+                        ChipTune.playScanComplete()
+                    }
                 }
         }
         .defaultSize(width: 1000, height: 720)
