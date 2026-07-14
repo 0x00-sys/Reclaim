@@ -8,10 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		000000000000000000000210 /* ReclaimKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000200 /* ReclaimKit */; };
+		000000000000000000000410 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000400 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Reclaim.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Reclaim.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000400 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -36,6 +38,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* Reclaim */,
+				000000000000000000000400 /* Assets.xcassets */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -107,6 +110,7 @@
 		000000000000000140000000 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				000000000000000000000410 /* Assets.xcassets in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */

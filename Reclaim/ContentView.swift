@@ -88,17 +88,7 @@ struct HeroCard: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(spacing: 14) {
-            if model.isScanning {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(model.scanProgress)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.opacity)
-                }
-                .frame(maxWidth: .infinity)
-            }
+        Group {
             if model.items.isEmpty && !model.isScanning {
                 VStack(spacing: 10) {
                     PixelSpriteView(palette: .blue)
@@ -111,23 +101,57 @@ struct HeroCard: View {
                     Button("Scan Now") { model.scan() }
                         .buttonStyle(.glassProminent)
                         .controlSize(.large)
+                        .pointerStyle(.link)
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-            } else if !model.items.isEmpty {
-                HStack(spacing: 0) {
-                    HeroStat(value: model.totalBytes, label: "found", tint: .primary)
-                    Divider().frame(height: 36)
-                    HeroStat(value: model.safeBytes, label: "safe to clean", tint: .green)
-                    Divider().frame(height: 36)
-                    VStack(spacing: 2) {
-                        Text("\(model.items.count)")
-                            .font(.system(.title, design: .rounded).weight(.bold))
-                            .monospacedDigit()
-                        Text("items")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 18) {
+                    ReclaimGauge(safe: model.safeBytes, total: model.totalBytes, isScanning: model.isScanning)
+                        .frame(width: 64, height: 64)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(model.safeBytes.formattedBytes)
+                                .font(.system(size: 30, weight: .bold, design: .rounded))
+                                .foregroundStyle(.green)
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                            Text("safe to clean")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 5) {
+                            Text(model.totalBytes.formattedBytes + " found")
+                            DotSeparator()
+                            Text("\(model.items.count) items")
+                            if let date = model.lastScanDate, !model.isScanning {
+                                DotSeparator()
+                                Text("scanned \(date.formatted(.relative(presentation: .named)))")
+                            }
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                     }
-                    .frame(maxWidth: .infinity)
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if model.isScanning {
+                            Button("Stop", systemImage: "stop.fill") { model.cancelScan() }
+                                .buttonStyle(.glass)
+                                .pointerStyle(.link)
+                            Text(model.scanProgress)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .contentTransition(.opacity)
+                        } else {
+                            Button("Scan Again", systemImage: "arrow.clockwise") { model.scan() }
+                                .buttonStyle(.glassProminent)
+                                .pointerStyle(.link)
+                        }
+                    }
                 }
             }
         }
@@ -137,23 +161,39 @@ struct HeroCard: View {
     }
 }
 
-struct HeroStat: View {
-    let value: Int64
-    let label: String
-    let tint: Color
+struct ReclaimGauge: View {
+    let safe: Int64
+    let total: Int64
+    let isScanning: Bool
+
+    private var fraction: Double {
+        total > 0 ? Double(safe) / Double(total) : 0
+    }
 
     var body: some View {
-        VStack(spacing: 2) {
-            Text(value.formattedBytes)
-                .font(.system(.title, design: .rounded).weight(.bold))
-                .foregroundStyle(tint)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        ZStack {
+            Circle()
+                .stroke(.quaternary, lineWidth: 7)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(.green, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.smooth(duration: 0.5), value: fraction)
+            if isScanning {
+                ProgressView().controlSize(.small)
+            } else {
+                Text(fraction, format: .percent.precision(.fractionLength(0)))
+                    .font(.system(.footnote, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+            }
         }
-        .frame(maxWidth: .infinity)
+        .padding(4)
+    }
+}
+
+struct DotSeparator: View {
+    var body: some View {
+        Text("·").foregroundStyle(.tertiary)
     }
 }
 
@@ -215,6 +255,7 @@ struct Chip: View {
     var tint: Color = .accentColor
     var isSelected: Bool
     var action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -238,6 +279,10 @@ struct Chip: View {
         .buttonStyle(.plain)
         .glassEffect(isSelected ? .regular.tint(tint.opacity(0.55)).interactive() : .regular.interactive(),
                      in: .capsule)
+        .scaleEffect(hovering && !isSelected ? 1.04 : 1)
+        .animation(.snappy(duration: 0.15), value: hovering)
+        .onHover { hovering = $0 }
+        .pointerStyle(.link)
     }
 }
 
@@ -257,7 +302,7 @@ struct ItemCardList: View {
                     isExpanded: expandedItem == item.id,
                     isSelected: model.selection.contains(item.id),
                     onToggleExpand: {
-                        withAnimation(.snappy(duration: 0.28)) {
+                        withAnimation(.smooth(duration: 0.25)) {
                             expandedItem = expandedItem == item.id ? nil : item.id
                         }
                     },
@@ -296,6 +341,7 @@ struct ItemCard: View {
                 .buttonStyle(.plain)
                 .disabled(!selectable)
                 .opacity(selectable ? 1 : 0.25)
+                .pointerStyle(.link)
 
                 ToolIconView(tool: item.tool, category: item.category)
                     .frame(width: 24, height: 24)
@@ -304,15 +350,18 @@ struct ItemCard: View {
                     Text(item.displayName)
                         .font(.body.weight(.medium))
                         .lineLimit(1)
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Text(item.tool.rawValue)
                         if let branch = item.worktree?.branch {
+                            DotSeparator()
                             Label(branch, systemImage: "arrow.triangle.branch")
                                 .lineLimit(1)
                         } else if item.worktree != nil, item.worktree?.isPrunable != true {
+                            DotSeparator()
                             Label("detached", systemImage: "arrow.triangle.branch")
                         }
                         if let date = item.lastActivity {
+                            DotSeparator()
                             Text(date, format: .relative(presentation: .named))
                         }
                     }
@@ -334,15 +383,16 @@ struct ItemCard: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
             .contentShape(Rectangle())
+            .pointerStyle(.link)
             .onTapGesture(perform: onToggleExpand)
 
             if isExpanded {
                 ItemDetail(item: item, onClean: onClean)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .background(.background, in: .rect(cornerRadius: 16))
         .overlay {
             RoundedRectangle(cornerRadius: 16)
@@ -364,10 +414,59 @@ struct ToolIconView: View {
                 .interpolation(.high)
                 .scaledToFit()
         } else {
-            Image(systemName: category.systemImage)
-                .font(.body)
-                .foregroundStyle(.secondary)
+            BrandBadge(tool: tool, category: category)
         }
+    }
+}
+
+/// Compact brand-colored badge for tools that don't ship a .app bundle (git, npm, pnpm…).
+struct BrandBadge: View {
+    let tool: Tool
+    let category: StorageCategory
+
+    private var style: (color: Color, symbol: String?, text: String?) {
+        switch tool {
+        case .git: (Color(red: 0.94, green: 0.32, blue: 0.2), "arrow.triangle.branch", nil)
+        case .npm: (Color(red: 0.8, green: 0.2, blue: 0.2), nil, "npm")
+        case .pnpm: (Color(red: 0.97, green: 0.68, blue: 0.14), nil, "p")
+        case .claudeCode: (Color(red: 0.85, green: 0.47, blue: 0.34), "asterisk", nil)
+        case .codex: (Color(white: 0.12), "circle.hexagongrid", nil)
+        case .conductor: (Color(red: 0.95, green: 0.55, blue: 0.25), "train.side.front.car", nil)
+        default: (Color.gray, category.systemImage, nil)
+        }
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(style.color.gradient)
+            .overlay {
+                if let symbol = style.symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                } else if let text = style.text {
+                    Text(text)
+                        .font(.system(size: text.count > 1 ? 7 : 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+            }
+    }
+}
+
+struct HoverTextButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .foregroundStyle(hovering ? .primary : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.primary.opacity(hovering ? 0.08 : 0), in: Capsule())
+            .onHover { hovering = $0 }
+            .pointerStyle(.link)
     }
 }
 
@@ -422,27 +521,41 @@ struct ItemDetail: View {
                     }
                 }
                 .buttonStyle(.glass)
+                .pointerStyle(.link)
 
                 Menu {
                     ForEach(Tool.allCases.filter { ToolIntegration.supportsPromptURL($0) }) { tool in
-                        Button("Ask \(tool.rawValue)") {
+                        Button {
                             let prompt = ToolIntegration.inspectionPrompt(for: item)
                             if let url = ToolIntegration.promptURL(tool: tool, prompt: prompt, path: item.worktree?.repositoryPath ?? item.path) {
                                 NSWorkspace.shared.open(url)
                             }
+                        } label: {
+                            Label {
+                                Text("Ask \(tool.rawValue)")
+                            } icon: {
+                                if let appIcon = AppIconProvider.icon(for: tool) {
+                                    Image(nsImage: appIcon)
+                                } else {
+                                    Image(systemName: "terminal")
+                                }
+                            }
                         }
                     }
                 } label: {
-                    Label("Investigate with AI", systemImage: "sparkles")
+                    Label("Investigate with AI", systemImage: "doc.text.magnifyingglass")
                 }
+                .menuStyle(.button)
                 .buttonStyle(.glass)
                 .fixedSize()
+                .pointerStyle(.link)
 
                 Spacer()
 
                 if cleanable {
-                    Button("Clean…", systemImage: "trash", role: .destructive, action: onClean)
+                    Button("Move to Trash", systemImage: "trash", role: .destructive, action: onClean)
                         .buttonStyle(.glass)
+                        .pointerStyle(.link)
                 }
             }
         }
@@ -472,12 +585,12 @@ struct SelectionBar: View {
                 Text("\(model.selection.count) selected · \(model.selectedBytes.formattedBytes)")
                     .font(.callout.weight(.medium))
                     .monospacedDigit()
-                Button("Deselect All") { model.selection = [] }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                Button("Clean…", systemImage: "trash", action: onClean)
+                HoverTextButton(title: "Deselect All") { model.selection = [] }
+                Button("Move to Trash", systemImage: "trash", action: onClean)
                     .buttonStyle(.glassProminent)
                     .tint(.red)
+                    .fixedSize()
+                    .pointerStyle(.link)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
