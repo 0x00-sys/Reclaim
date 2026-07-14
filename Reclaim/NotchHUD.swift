@@ -2,11 +2,25 @@ import SwiftUI
 import AppKit
 import ReclaimKit
 
+/// Debug-only breadcrumbs for scripted runs (-notchDebug YES); appends to /tmp.
+func notchDebugLog(_ message: String) {
+    guard UserDefaults.standard.bool(forKey: "notchDebug") else { return }
+    let line = message + "\n"
+    let url = URL(filePath: "/tmp/reclaim-notch-debug.log")
+    if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        try? handle.close()
+    } else {
+        try? line.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
 // MARK: - Geometry
 
 enum NotchConstants {
     /// Size of the expanded card (the window is fixed at this size plus shadow room).
-    static let openSize = CGSize(width: 420, height: 176)
+    static let openSize = CGSize(width: 384, height: 164)
     static let shadowPadding: CGFloat = 24
     /// Corner radii, closed → open. The top radius draws the concave "ears".
     static let closedTopRadius: CGFloat = 6
@@ -154,7 +168,9 @@ final class NotchHUDController {
 
     private func show(model: AppModel) {
         guard let metrics = NotchMetrics.detect() else { return }
-        viewModel.metrics = metrics
+        if viewModel.metrics != metrics {
+            viewModel.metrics = metrics
+        }
         if panel == nil {
             let panel = NSPanel(
                 contentRect: NSRect(origin: .zero, size: NotchConstants.windowSize),
@@ -180,6 +196,13 @@ final class NotchHUDController {
         }
         position()
         panel?.orderFrontRegardless()
+        // Debug affordance for scripted runs: open Reclaim.app --args -notchExpanded YES
+        if UserDefaults.standard.bool(forKey: "notchExpanded") {
+            viewModel.expanded = true
+        }
+        if let panel {
+            notchDebugLog("window frame=\(panel.frame) contentView bounds=\(panel.contentView?.bounds ?? .zero) windowSize const=\(NotchConstants.windowSize) metrics=\(String(describing: viewModel.metrics))")
+        }
     }
 
     private func position() {
@@ -253,27 +276,41 @@ struct NotchView: View {
             topRadius: expanded ? NotchConstants.openTopRadius : NotchConstants.closedTopRadius,
             bottomRadius: expanded ? NotchConstants.openBottomRadius : NotchConstants.closedBottomRadius
         )
+        // Both states are always present and crossfade; structural swaps restart
+        // transitions and caused visible mid-animation freezes.
         ZStack(alignment: .top) {
-            Color.black
-            Group {
-                if expanded {
-                    ExpandedNotchContent(model: model, metrics: metrics)
-                        .transition(.scale(scale: 0.8, anchor: .top).combined(with: .opacity))
-                } else {
-                    CollapsedNotchContent(model: model, metrics: metrics)
-                        .transition(.opacity)
-                }
-            }
-            .animation(.smooth(duration: 0.35), value: expanded)
+            CollapsedNotchContent(model: model, metrics: metrics)
+                .opacity(expanded ? 0 : 1)
+            ExpandedNotchContent(model: model, metrics: metrics)
+                .scaleEffect(expanded ? 1 : 0.8, anchor: .top)
+                .opacity(expanded ? 1 : 0)
+        }
+        .animation(.smooth(duration: 0.3), value: expanded)
+        // The card frame is the single source of truth for size; content always
+        // fills it and can never overflow it.
+        .frame(width: expanded ? NotchConstants.openSize.width : closedSize.width,
+               height: expanded ? NotchConstants.openSize.height : closedSize.height)
+        .background(.black)
+        .overlay(alignment: .top) {
             // Seals the hairline seam against the physical notch.
             Rectangle()
                 .fill(.black)
                 .frame(height: 1)
                 .padding(.horizontal, expanded ? NotchConstants.openTopRadius : NotchConstants.closedTopRadius)
         }
-        .frame(width: expanded ? NotchConstants.openSize.width : closedSize.width,
-               height: expanded ? NotchConstants.openSize.height : closedSize.height)
         .clipShape(shape)
+        .background {
+            if UserDefaults.standard.bool(forKey: "notchDebug") {
+                GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        notchDebugLog("card size=\(proxy.size) frameGlobal=\(proxy.frame(in: .global))")
+                    }
+                    .onChange(of: proxy.size) {
+                        notchDebugLog("card size changed=\(proxy.size)")
+                    }
+                }
+            }
+        }
         .shadow(color: .black.opacity(expanded ? 0.55 : 0), radius: 6, y: 3)
         .animation(expanded ? NotchConstants.openSpring : NotchConstants.closeSpring, value: expanded)
         .contentShape(shape)
@@ -285,6 +322,9 @@ struct NotchView: View {
     }
 
     private func hoverChanged(_ isHovering: Bool) {
+        // AppKit fires a spurious exit when the tracking area is set up while
+        // the pointer is elsewhere; only react to a real enter → exit sequence.
+        guard isHovering != hovering else { return }
         hovering = isHovering
         hoverTask?.cancel()
         if isHovering {
@@ -295,6 +335,7 @@ struct NotchView: View {
                 viewModel.expanded = true
             }
         } else {
+            guard expanded, !UserDefaults.standard.bool(forKey: "notchExpanded") else { return }
             hoverTask = Task {
                 try? await Task.sleep(for: NotchConstants.hoverCloseDelay)
                 guard !Task.isCancelled, !hovering else { return }
@@ -379,7 +420,7 @@ struct ExpandedNotchContent: View {
                         .monospacedDigit()
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 2)
             HStack {
                 Text("\(model.items.count) items")
                     .font(.caption2)
@@ -390,9 +431,9 @@ struct ExpandedNotchContent: View {
                     .foregroundStyle(Color(red: 0.3, green: 0.9, blue: 0.5))
                     .monospacedDigit()
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, 11)
         }
-        .padding(.horizontal, 16)
-        .frame(width: NotchConstants.openSize.width, height: NotchConstants.openSize.height)
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
