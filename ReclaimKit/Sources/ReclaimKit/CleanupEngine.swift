@@ -67,6 +67,14 @@ public actor CleanupEngine {
         if processes.referencesPath(item.path) {
             return failure("Refused: a running process references this path.")
         }
+        switch await Self.openFileCheck(path: item.path) {
+        case .inUse(let programs):
+            return failure("Refused: files inside are open in \(programs.joined(separator: ", ")).")
+        case .unknown:
+            return failure("Refused: could not verify that nothing has these files open. Try again in a moment.")
+        case .free:
+            break
+        }
         if let worktree = item.worktree, worktree.isPrunable,
            !FileManager.default.fileExists(atPath: item.path),
            let repo = worktree.repositoryPath {
@@ -134,6 +142,31 @@ public actor CleanupEngine {
             result.message = "Moved to Trash and pruned from \(URL(filePath: repo).lastPathComponent)."
         }
         return result
+    }
+
+    enum OpenFileStatus: Sendable {
+        case free
+        case inUse(programs: [String])
+        case unknown
+    }
+
+    /// Authoritative in-use check: asks lsof whether any process holds open
+    /// files under the path. Command-line scanning misses daemons like gopls
+    /// that keep cache files open; trashing those makes emptying the Trash fail.
+    static func openFileCheck(path: String, timeout: TimeInterval = 25) async -> OpenFileStatus {
+        guard let result = try? await runSubprocess(
+            "/usr/sbin/lsof", ["-w", "-F", "c", "+D", path], timeout: timeout
+        ) else { return .unknown }
+        let programs = Set(
+            result.stdout.split(separator: "\n")
+                .filter { $0.hasPrefix("c") }
+                .map { String($0.dropFirst()) }
+        ).sorted()
+        if !programs.isEmpty {
+            return .inUse(programs: programs)
+        }
+        // lsof exits 1 when it finds nothing; a timeout kill leaves other codes.
+        return result.status <= 1 ? .free : .unknown
     }
 
     private func trash(_ item: ScanItem, alsoSiblings suffixes: [String]) -> CleanupResult {

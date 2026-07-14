@@ -16,7 +16,8 @@ enum SubprocessError: Error {
 func runSubprocess(
     _ executable: String,
     _ arguments: [String],
-    currentDirectory: String? = nil
+    currentDirectory: String? = nil,
+    timeout: TimeInterval? = nil
 ) async throws -> SubprocessResult {
     let process = Process()
     process.executableURL = URL(filePath: executable)
@@ -38,6 +39,11 @@ func runSubprocess(
                 } catch {
                     continuation.resume(throwing: SubprocessError.launchFailed("\(executable): \(error.localizedDescription)"))
                     return
+                }
+                if let timeout {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                        if process.isRunning { process.terminate() }
+                    }
                 }
                 // Drain both pipes fully before waiting to avoid deadlock on large output.
                 let outData = outPipe.fileHandleForReading.readDataToEndOfFile()

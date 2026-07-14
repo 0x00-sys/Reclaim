@@ -14,13 +14,15 @@ public struct DevCacheScanner: StorageScanner {
         var category: StorageCategory
         var note: String?
         var processHint: String?
+        /// Additional daemons that hold these files open (e.g. editor language servers).
+        var daemonHints: [String] = []
     }
 
     static let entries: [Entry] = [
         Entry(relativePath: "Library/Caches/go-build", tool: .go, title: "Go build cache",
-              category: .packageCache, note: "`go clean -cache` is the official way; rebuilt on the next build.", processHint: "go"),
+              category: .packageCache, note: "`go clean -cache` is the official way; rebuilt on the next build.", processHint: "go", daemonHints: ["gopls", "golangci-lint"]),
         Entry(relativePath: "go/pkg/mod", tool: .go, title: "Go module cache",
-              category: .packageCache, note: "Modules are re-downloaded on demand. Prefer `go clean -modcache`: the cache is write-protected and trashing it can fail.", processHint: "go"),
+              category: .packageCache, note: "Modules are re-downloaded on demand. Prefer `go clean -modcache`: the cache is write-protected and trashing it can fail.", processHint: "go", daemonHints: ["gopls", "golangci-lint"]),
         Entry(relativePath: "Library/Caches/ms-playwright", tool: .playwright, title: "Playwright browsers",
               category: .toolCache, note: "Browsers are re-downloaded by `npx playwright install`.", processHint: "playwright"),
         Entry(relativePath: ".bun/install/cache", tool: .bun, title: "Bun install cache",
@@ -64,7 +66,8 @@ public struct DevCacheScanner: StorageScanner {
                 tool: entry.tool,
                 category: entry.category,
                 lastActivity: latestModification(in: url, maxDepth: 0),
-                hasActiveProcess: entry.processHint.map { context.processes.hasProcess(named: $0) } ?? false
+                hasActiveProcess: ([entry.processHint].compactMap { $0 } + entry.daemonHints)
+                    .contains { context.processes.hasProcess(named: $0) }
             )
             (item.safety, item.reasons) = Classifier.classify(item)
             if let note = entry.note {

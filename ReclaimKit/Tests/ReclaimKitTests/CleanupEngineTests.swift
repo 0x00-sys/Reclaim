@@ -132,6 +132,26 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: dir.path))
     }
 
+    @Test func refusesDirectoryWithOpenFiles() async throws {
+        let dir = URL(filePath: NSTemporaryDirectory()).appendingPathComponent("reclaim-inuse-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("held-open.dat")
+        try Data(repeating: 1, count: 128).write(to: file)
+        let handle = try FileHandle(forReadingFrom: file) // this process holds it open
+
+        var item = ScanItem(path: dir.path, displayName: "in-use", tool: .npm, category: .toolCache)
+        item.safety = .safe
+        let results = await CleanupEngine().clean(items: [item])
+        #expect(results[0].success == false)
+        #expect(results[0].message.contains("open"))
+        #expect(FileManager.default.fileExists(atPath: dir.path))
+
+        try handle.close()
+        let retried = await CleanupEngine().clean(items: [item])
+        #expect(retried[0].success == true)
+    }
+
     @Test func trashesPlainDirectory() async throws {
         let dir = URL(filePath: NSTemporaryDirectory()).appendingPathComponent("reclaim-cache-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

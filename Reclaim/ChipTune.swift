@@ -36,7 +36,7 @@ enum ChipTune {
                 let phase = Double(i).truncatingRemainder(dividingBy: period) / period
                 let square: Float = phase < 0.5 ? 1 : -1
                 let envelope = Float(1 - Double(i) / Double(noteFrames)) * 0.55 + 0.45
-                samples[frame + i] = square * 0.07 * envelope
+                samples[frame + i] = square * 0.042 * envelope
             }
             frame += noteFrames + Int(gap * sampleRate)
         }
