@@ -20,7 +20,7 @@ func notchDebugLog(_ message: String) {
 
 enum NotchConstants {
     /// Size of the expanded card (the window is fixed at this size plus shadow room).
-    static let openSize = CGSize(width: 384, height: 164)
+    static let openSize = CGSize(width: 440, height: 170)
     static let shadowPadding: CGFloat = 24
     /// Corner radii, closed → open. The top radius draws the concave "ears".
     static let closedTopRadius: CGFloat = 6
@@ -433,7 +433,7 @@ struct ExpandedNotchContent: View {
             }
             .padding(.bottom, 11)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
