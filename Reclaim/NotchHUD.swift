@@ -140,12 +140,24 @@ final class NotchHUDController {
     private let viewModel = NotchViewModel()
     private weak var model: AppModel?
 
+    private var activationObserver: NSObjectProtocol?
+
     init() {
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.screenLayoutChanged() }
+        }
+        // Coming back to the app dismisses the lingering result notch.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.model?.isScanning != true else { return }
+                self.hide()
+            }
         }
     }
 
@@ -156,14 +168,27 @@ final class NotchHUDController {
         if model.isScanning {
             hideTask?.cancel()
             show(model: model)
-        } else if panel != nil {
-            hideTask?.cancel()
-            hideTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled, self?.viewModel.expanded != true else { return }
-                self?.hide()
-            }
         }
+        // When the scan finishes the notch stays put with the results; it
+        // dismisses when the user opens the app or hovers it and moves away.
+    }
+
+    /// Called after the user hovered the expanded notch and left it.
+    func hoverEnded() {
+        guard model?.isScanning != true else { return }
+        hideTask?.cancel()
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(650))
+            guard !Task.isCancelled else { return }
+            self?.hide()
+        }
+    }
+
+    /// Brings the main window forward and dismisses the notch.
+    func openApp() {
+        NSApp.activate()
+        NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+        hide()
     }
 
     private func show(model: AppModel) {
@@ -187,7 +212,12 @@ final class NotchHUDController {
             panel.isReleasedWhenClosed = false
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
             panel.collectionBehavior = [.fullScreenAuxiliary, .stationary, .canJoinAllSpaces, .ignoresCycle]
-            let hosting = NSHostingView(rootView: NotchHUDRoot(model: model, viewModel: viewModel))
+            let hosting = NSHostingView(rootView: NotchHUDRoot(
+                model: model,
+                viewModel: viewModel,
+                onOpenApp: { [weak self] in self?.openApp() },
+                onHoverEnd: { [weak self] in self?.hoverEnded() }
+            ))
             // The window must stay at its fixed size; never let SwiftUI resize it.
             hosting.sizingOptions = []
             panel.contentView = hosting
@@ -237,11 +267,14 @@ final class NotchHUDController {
 struct NotchHUDRoot: View {
     let model: AppModel
     let viewModel: NotchViewModel
+    let onOpenApp: () -> Void
+    let onHoverEnd: () -> Void
 
     var body: some View {
         Group {
             if let metrics = viewModel.metrics {
-                NotchView(model: model, viewModel: viewModel, metrics: metrics)
+                NotchView(model: model, viewModel: viewModel, metrics: metrics,
+                          onOpenApp: onOpenApp, onHoverEnd: onHoverEnd)
             }
         }
         .frame(width: NotchConstants.windowSize.width,
@@ -254,6 +287,8 @@ struct NotchView: View {
     let model: AppModel
     let viewModel: NotchViewModel
     let metrics: NotchMetrics
+    let onOpenApp: () -> Void
+    let onHoverEnd: () -> Void
 
     @State private var hovering = false
     @State private var hoverTask: Task<Void, Never>?
@@ -284,10 +319,11 @@ struct NotchView: View {
             CollapsedNotchContent(model: model, metrics: metrics)
                 .frame(width: closedSize.width, height: closedSize.height)
                 .opacity(expanded ? 0 : 1)
-            ExpandedNotchContent(model: model, metrics: metrics)
+            ExpandedNotchContent(model: model, metrics: metrics, onOpenApp: onOpenApp)
                 .frame(width: NotchConstants.openSize.width, height: NotchConstants.openSize.height)
                 .scaleEffect(expanded ? 1 : 0.85, anchor: .top)
                 .opacity(expanded ? 1 : 0)
+                .allowsHitTesting(expanded)
         }
         .animation(.smooth(duration: 0.22), value: expanded)
         // The card frame is the single source of truth for size; content always
@@ -345,6 +381,7 @@ struct NotchView: View {
                 try? await Task.sleep(for: NotchConstants.hoverCloseDelay)
                 guard !Task.isCancelled, !hovering else { return }
                 viewModel.expanded = false
+                onHoverEnd()
             }
         }
     }
@@ -381,6 +418,7 @@ struct CollapsedNotchContent: View {
 struct ExpandedNotchContent: View {
     let model: AppModel
     let metrics: NotchMetrics
+    let onOpenApp: () -> Void
 
     private var categories: [(StorageCategory, Int64)] {
         Dictionary(grouping: model.items, by: \.category)
@@ -406,6 +444,15 @@ struct ExpandedNotchContent: View {
                 Spacer()
                 if model.isScanning {
                     ProgressView().controlSize(.mini).tint(.white)
+                } else {
+                    Button(action: onOpenApp) {
+                        Image(systemName: "arrow.up.forward.app")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                    .buttonStyle(.plain)
+                    .pointerStyle(.link)
+                    .help("Open Reclaim")
                 }
             }
             .padding(.bottom, 9)
