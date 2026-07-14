@@ -171,7 +171,11 @@ final class NotchHUDController {
             panel.isReleasedWhenClosed = false
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
             panel.collectionBehavior = [.fullScreenAuxiliary, .stationary, .canJoinAllSpaces, .ignoresCycle]
-            panel.contentView = NSHostingView(rootView: NotchHUDRoot(model: model, viewModel: viewModel))
+            let hosting = NSHostingView(rootView: NotchHUDRoot(model: model, viewModel: viewModel))
+            // The window must stay at its fixed size; never let SwiftUI resize it.
+            hosting.sizingOptions = []
+            panel.contentView = hosting
+            panel.setContentSize(NotchConstants.windowSize)
             self.panel = panel
         }
         position()
@@ -217,7 +221,9 @@ struct NotchHUDRoot: View {
                 NotchView(model: model, viewModel: viewModel, metrics: metrics)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(width: NotchConstants.windowSize.width,
+               height: NotchConstants.windowSize.height,
+               alignment: .top)
     }
 }
 
