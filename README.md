@@ -14,7 +14,7 @@ Find your lost gigabytes — a macOS app that safely cleans the disk space eaten
 Build from source for now (Homebrew tap coming with the first release):
 
 ```sh
-git clone <repo-url>
+git clone https://github.com/0x00-sys/Reclaim.git
 cd Reclaim
 open Reclaim.xcodeproj
 ```
