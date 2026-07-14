@@ -293,7 +293,8 @@ struct NotchView: View {
         // The card frame is the single source of truth for size; content always
         // fills it and can never overflow it.
         .frame(width: expanded ? NotchConstants.openSize.width : closedSize.width,
-               height: expanded ? NotchConstants.openSize.height : closedSize.height)
+               height: expanded ? NotchConstants.openSize.height : closedSize.height,
+               alignment: .top)
         .background(.black)
         .overlay(alignment: .top) {
             // Seals the hairline seam against the physical notch.
