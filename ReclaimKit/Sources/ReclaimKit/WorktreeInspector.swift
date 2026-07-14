@@ -16,9 +16,6 @@ public struct WorktreeInspector: Sendable {
         return isDirectory.boolValue
     }
 
-    /// True when the directory contains a `.git` *file* (linked worktree), not a `.git` directory.
-    public static func isLinkedWorktree(_ url: URL) -> Bool { gitEntryIsDirectory(url) == false }
-
     public static func isMainRepository(_ url: URL) -> Bool { gitEntryIsDirectory(url) == true }
 
     /// The directory is the root of a working tree (linked worktree or main repo).
@@ -72,7 +69,8 @@ public struct WorktreeInspector: Sendable {
         displayName: String? = nil,
         hasActiveProcess: Bool = false,
         hasActiveSession: Bool = false,
-        registeredEntries: [GitWorktreeEntry]? = nil
+        registeredEntries: [GitWorktreeEntry]? = nil,
+        cautionNote: String? = nil
     ) async throws -> ScanItem {
         let state = try await inspect(url, registeredEntries: registeredEntries)
         var item = ScanItem(
@@ -83,7 +81,8 @@ public struct WorktreeInspector: Sendable {
             lastActivity: state.lastCommitDate ?? latestModification(in: url, maxDepth: 1),
             worktree: state,
             hasActiveProcess: hasActiveProcess,
-            hasActiveSession: hasActiveSession
+            hasActiveSession: hasActiveSession,
+            cautionNote: cautionNote
         )
         (item.safety, item.reasons) = Classifier.classify(item)
         return item

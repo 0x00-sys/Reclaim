@@ -59,7 +59,9 @@ enum DockIcon {
             let originY = rect.midY - cell * CGFloat(rows) / 2
             (dark ? NSColor(calibratedWhite: 0.96, alpha: 1) : NSColor(calibratedWhite: 0.07, alpha: 1)).setFill()
             for (row, line) in invader.enumerated() {
-                for (col, char) in line.enumerated() where char != "." {
+                // '+' marks the sprite's highlight pixels (the eyes) — in the
+                // monochrome icon those stay holes, as the original icon drew them.
+                for (col, char) in line.enumerated() where char == "#" {
                     CGRect(x: originX + CGFloat(col) * cell,
                            y: originY + CGFloat(rows - 1 - row) * cell,
                            width: cell * 0.88, height: cell * 0.88).fill()

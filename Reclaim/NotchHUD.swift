@@ -155,7 +155,7 @@ final class NotchHUDController {
             object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.model?.isScanning != true, self.model?.isCleaning != true else { return }
+                guard let self, self.model?.isBusy != true else { return }
                 self.hide()
             }
         }
@@ -165,7 +165,7 @@ final class NotchHUDController {
         self.model = model
         let enabled = UserDefaults.standard.object(forKey: "showNotchHUD") as? Bool ?? true
         guard enabled else { hide(); return }
-        if model.isScanning || model.isCleaning {
+        if model.isBusy {
             hideTask?.cancel()
             show(model: model)
         }
@@ -420,12 +420,12 @@ struct ExpandedNotchContent: View {
                 PixelSpriteView(tool: model.currentTool,
                                 palette: model.isScanning ? .blue : .green)
                     .frame(width: 20, height: 16)
-                Text(model.isScanning || model.isCleaning ? model.statusLine : "Scan complete")
+                Text(model.isBusy ? model.statusLine : "Scan complete")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .contentTransition(.opacity)
                 Spacer()
-                if model.isScanning || model.isCleaning {
+                if model.isBusy {
                     ProgressView().controlSize(.mini).tint(.white)
                 } else {
                     Button(action: onOpenApp) {

@@ -7,10 +7,13 @@ public enum Classifier {
     public static func classify(_ item: ScanItem, now: Date = .now) -> (Safety, [String]) {
         var (safety, reasons) = item.worktree.map { classifyWorktree(item, $0, now: now) }
             ?? classifyNonWorktree(item, now: now)
-        // Scanner-supplied caution demotes an otherwise-safe verdict to review.
-        if safety == .safe, let note = item.cautionNote {
-            safety = .review
-            reasons = [note]
+        // Scanner-supplied caution is always shown, and demotes an
+        // otherwise-safe verdict to review without hiding the other evidence.
+        if let note = item.cautionNote {
+            reasons.append(note)
+            if safety == .safe {
+                safety = .review
+            }
         }
         return (safety, reasons)
     }

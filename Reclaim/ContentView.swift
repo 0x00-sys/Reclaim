@@ -163,8 +163,7 @@ struct HeroCard: View {
     var onCleanSafe: () -> Void
 
     var body: some View {
-        Group {
-            HStack(spacing: 18) {
+        HStack(spacing: 18) {
                     ReclaimGauge(safe: model.safeBytes, total: model.totalBytes, isScanning: model.isScanning)
                         .frame(width: 64, height: 64)
 
@@ -195,20 +194,17 @@ struct HeroCard: View {
 
                     Spacer()
 
-                    if model.isCleaning {
+                    if model.isBusy {
                         HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text(model.cleaningStatus)
+                            if model.isCleaning {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text(model.statusLine)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                                 .contentTransition(.opacity)
                         }
-                    } else if model.isScanning {
-                        Text(model.scanProgress)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .contentTransition(.opacity)
                     } else if filteredSafeBytes > 0 {
                         Button {
                             onCleanSafe()
@@ -222,7 +218,6 @@ struct HeroCard: View {
                         .pointerStyle(.link)
                         .help("Move every item marked Safe in the current filter to the Trash")
                     }
-                }
         }
         .padding(18)
         .frame(maxWidth: .infinity)

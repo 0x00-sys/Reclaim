@@ -170,8 +170,9 @@ public actor CleanupEngine {
                 try? FileManager.default.trashItem(at: URL(filePath: companion), resultingItemURL: nil)
             }
             if item.trashParentIfEmpty {
+                // Hidden droppings like .DS_Store don't count as contents.
                 let parent = item.url.deletingLastPathComponent()
-                if FileManager.default.contentsOfDirectoryIfPresent(parent, includeHidden: true).isEmpty {
+                if FileManager.default.contentsOfDirectoryIfPresent(parent).isEmpty {
                     try? FileManager.default.trashItem(at: parent, resultingItemURL: nil)
                 }
             }

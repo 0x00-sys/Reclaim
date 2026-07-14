@@ -31,7 +31,6 @@ public struct RepoWorktreeScanner: StorageScanner {
                 && !entries.contains(where: { canonicalPath($0.path) == canonicalPath(orphan.path) }) {
                 entries.append(GitWorktreeEntry(path: orphan.path))
             }
-            let claudePrefix = canonicalPath(claudeRoot.path) + "/"
             for entry in entries {
                 guard !seen.contains(entry.path) else { continue }
                 seen.insert(entry.path)
@@ -49,7 +48,7 @@ public struct RepoWorktreeScanner: StorageScanner {
                     ))
                     continue
                 }
-                let isClaude = canonicalPath(entry.path).hasPrefix(claudePrefix)
+                let isClaude = entry.path.contains("/.claude/worktrees/")
                 let item = try await inspector.scanItem(
                     at: URL(filePath: entry.path),
                     tool: isClaude ? .claudeCode : .git,

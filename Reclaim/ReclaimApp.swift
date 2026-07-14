@@ -52,8 +52,8 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        if model.isScanning {
-            Text("Scanning… \(model.scanProgress)")
+        if model.isBusy {
+            Text(model.statusLine)
         } else if let date = model.lastScanDate {
             Text("Last scan \(date.formatted(.relative(presentation: .named)))")
             Text("\(model.totalBytes.formattedBytes) found · \(model.safeBytes.formattedBytes) safe to clean")

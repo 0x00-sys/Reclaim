@@ -23,9 +23,11 @@ public struct ProcessSnapshot: Sendable {
 
     public func hasProcess(named name: String) -> Bool {
         commandLines.contains { line in
-            line.split(separator: " ").first.map { segment in
-                segment.hasSuffix("/\(name)") || segment == Substring(name)
-            } ?? false
+            // First token catches CLI binaries; the bundle check catches app
+            // processes (and their helpers) even when the path contains spaces.
+            let firstToken = line.split(separator: " ").first
+            return firstToken.map { $0.hasSuffix("/\(name)") || $0 == Substring(name) } ?? false
+                || line.contains("/\(name).app/")
         }
     }
 

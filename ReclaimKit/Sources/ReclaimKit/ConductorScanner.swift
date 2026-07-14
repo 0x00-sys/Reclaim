@@ -34,18 +34,18 @@ public struct ConductorScanner: StorageScanner {
             for workspace in workspaceDirs {
                 try Task.checkCancellation()
                 let hasAlias = aliasedTargets.contains(workspace.lastPathComponent)
-                var item = try await inspector.scanItem(
+                // Evidence, not verdict: the Classifier owns the demotion rule.
+                let caution = hasAlias && !conductorRunning
+                    ? "A branch symlink still points at this workspace."
+                    : nil
+                let item = try await inspector.scanItem(
                     at: workspace,
                     tool: .conductor,
                     displayName: "\(repoDir.lastPathComponent)/\(workspace.lastPathComponent)",
                     hasActiveProcess: context.processes.referencesPath(workspace.path),
-                    hasActiveSession: conductorRunning && hasAlias
+                    hasActiveSession: conductorRunning && hasAlias,
+                    cautionNote: caution
                 )
-                if hasAlias && !conductorRunning {
-                    // Evidence, not verdict: the Classifier owns the demotion rule.
-                    item.cautionNote = "A branch symlink still points at this workspace."
-                    (item.safety, item.reasons) = Classifier.classify(item)
-                }
                 items.append(item)
             }
         }

@@ -20,7 +20,10 @@ public final class AppModel {
     }
 
     private var scanTask: Task<Void, Never>?
+    private var cleanedPaths: Set<String> = []
     private let cleanupEngine = CleanupEngine()
+
+    public var isBusy: Bool { isScanning || isCleaning }
 
     public init() {
         if let stored = UserDefaults.standard.stringArray(forKey: "projectRoots") {
@@ -58,8 +61,11 @@ public final class AppModel {
         scanProgress = "Preparing…"
         items = []
         selection = []
+        cleanedPaths = []
         scanTask = Task {
             await runScan()
+            // A cancelled task must not stomp the state of a newer scan.
+            guard !Task.isCancelled else { return }
             isScanning = false
             lastScanDate = .now
             scanTask = nil
@@ -83,6 +89,9 @@ public final class AppModel {
             } catch {
                 // One scanner failing must not sink the rest.
             }
+            if Task.isCancelled { return }
+            // Don't resurrect items the user cleaned while the scan was running.
+            collected.removeAll { cleanedPaths.contains($0.path) }
             items = deduplicateScanItems(collected).sorted { ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }
         }
 
@@ -95,7 +104,17 @@ public final class AppModel {
 
     private func measureSizes() async {
         let unsized = items.filter { $0.sizeBytes == nil }.map(\.url)
-        var indexByPath = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.path, $0) })
+        let indexByPath = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.path, $0) })
+
+        // items can shrink while we await (cleaning is allowed mid-scan), so a
+        // snapshotted index is only a hint — validate it before writing through it.
+        func applySize(_ size: Int64?, forPath path: String) {
+            if let index = indexByPath[path], index < items.count, items[index].path == path {
+                items[index].sizeBytes = size
+            } else if let index = items.firstIndex(where: { $0.path == path }) {
+                items[index].sizeBytes = size
+            }
+        }
         await withTaskGroup(of: (String, Int64?).self) { group in
             var iterator = unsized.makeIterator()
             var running = 0
@@ -110,10 +129,8 @@ public final class AppModel {
             while running > 0 {
                 guard let (path, size) = await group.next() else { break }
                 running -= 1
-                if let index = indexByPath[path] {
-                    items[index].sizeBytes = size
-                }
                 if Task.isCancelled { group.cancelAll(); break }
+                applySize(size, forPath: path)
                 addNext(&group)
             }
         }
@@ -134,6 +151,7 @@ public final class AppModel {
             if result.success {
                 self?.items.removeAll { $0.path == result.path }
                 self?.selection.remove(result.path)
+                self?.cleanedPaths.insert(result.path)
             }
         }
         cleanupResults = results
