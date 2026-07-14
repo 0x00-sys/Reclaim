@@ -2,7 +2,7 @@
 
 Your AI coding agents are eating your disk. Reclaim gives it back.
 
-<!-- screenshot goes here -->
+![Reclaim — find your lost gigabytes](docs/banner.png)
 
 Codex, Claude Code, Conductor and friends create a git worktree for almost every task, each with its own checkout and its own `node_modules`. A few busy weeks later there are 60 GB of abandoned copies of your repos sitting in hidden folders, and no safe way to tell which ones still hold real work. Generic disk cleaners see folders. Reclaim sees git.
 
