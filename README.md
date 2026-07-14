@@ -1,37 +1,17 @@
 # Reclaim
 
-Your AI coding agents are eating your disk. Reclaim gives it back.
+Find your lost gigabytes — a macOS app that safely cleans the disk space eaten by git worktrees, build caches, and AI coding agents.
 
-![Reclaim — find your lost gigabytes](docs/banner.png)
+[![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black)](#install)
+[![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](ReclaimKit)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-40%20passing-4DE68A)](ReclaimKit/Tests)
 
-Codex, Claude Code, Conductor and friends create a git worktree for almost every task, each with its own checkout and its own `node_modules`. A few busy weeks later there are 60 GB of abandoned copies of your repos sitting in hidden folders, and no safe way to tell which ones still hold real work. Generic disk cleaners see folders. Reclaim sees git.
-
-## What it does
-
-Reclaim scans your Mac for development storage and tells you, item by item, whether it is safe to remove and why:
-
-- Git worktrees left behind by Codex, Conductor, Claude Code, or created by hand
-- `node_modules` folders across your projects
-- npm and pnpm caches
-- Xcode DerivedData, archives, device support and simulator data
-- Caches and session data from Codex, Claude Code, Cursor and Conductor
-
-Every worktree gets a real git inspection: uncommitted changes, untracked files, commits that exist nowhere else, lock status, whether an agent session is still using it. Nothing is ever classified by file age alone.
-
-## Why you can trust it
-
-- Everything goes to the Trash, so any cleanup can be undone
-- Worktrees are re-checked at the moment of deletion, not just at scan time. If work appeared since the scan, the item is refused
-- Anything dirty, unpushed, locked, active or unclear is refused by the cleanup engine itself, not just hidden in the UI
-- The main worktree of a repository can never be removed
-- Simulator data is never deleted directly; Reclaim points you to `simctl` instead
-- After cleanup, stale registrations are pruned from the parent repo so `git worktree list` stays truthful
-
-If Reclaim is not sure about something, it says so and leaves it alone. For anything questionable you can hand it to your AI tool of choice with one click: Reclaim opens Codex, Claude Code, Conductor or Cursor with a prefilled prompt asking it to inspect the workspace, commit and push what matters, and clean up the rest.
+[![Reclaim — find your lost gigabytes](docs/banner.png)](docs/banner.png)
 
 ## Install
 
-Build from source for now:
+Build from source for now (Homebrew tap coming with the first release):
 
 ```sh
 git clone <repo-url>
@@ -39,22 +19,53 @@ cd Reclaim
 open Reclaim.xcodeproj
 ```
 
-Requires macOS 26 and Xcode 26. Homebrew is on the way: tagging a release
-builds and publishes the app automatically, and the cask template lives in
-`packaging/reclaim.rb`, so `brew install <owner>/tap/reclaim` will work as
-soon as the tap repo is up.
+***
+
+## Why Reclaim
+
+- AI agents create a git worktree per task. A busy month leaves tens of gigabytes of abandoned repo copies in hidden folders.
+- Every worktree gets a real git inspection: uncommitted changes, untracked files, commits that exist nowhere else, lock state, live sessions.
+- Nothing is classified by file age alone, and nothing is deleted without your confirmation.
+- Deletion is Trash-first and re-verified at the moment of removal — if work appeared since the scan, the item is refused.
+- One-click clean of everything Safe, driven by your filters: category, tool, status, idle time.
+- A notch panel shows live scan and cleanup progress, with pixel-art sprites per tool.
+- 8-bit chime when it's done. Optional everything.
+
+**Scans:** Codex · Claude Code · Conductor · Cursor · git worktrees · node_modules · `.next`/`.nuxt`/`.turbo`/cargo target · npm · pnpm · Bun · Go · Playwright · Homebrew · pip · Gradle · CocoaPods · Xcode
+
+***
+
+## Safety model
+
+Every item gets a verdict with reasons: **Safe to clean**, **Review first**, **Active or protected**, or **Unknown**. The cleanup engine independently refuses anything dirty, unpushed, locked, in use by a running process, or holding open files — even if asked. The main worktree of a repository can never be removed. Force-cleaning refused items exists, but only behind a double confirmation, and it still can't touch the hard refusals.
+
+Details and per-tool storage research with sources: [docs/RESEARCH.md](docs/RESEARCH.md)
+
+***
+
+## FAQ
+
+**Where do deleted files go?**
+The macOS Trash, always. Registered worktrees are additionally pruned from their repository so `git worktree list` stays truthful.
+
+**Why isn't the app sandboxed?**
+It scans development directories across your home folder, which the sandbox forbids. It is read-only except for the explicit, confirmed cleanup flow, and every git call uses argument arrays — never shell strings.
+
+**Can I check what it would find without the app?**
+Yes: `cd ReclaimKit && swift run reclaim-scan ~/dev --sizes` prints a read-only report.
+
+**A tool I use isn't supported.**
+Open an issue with where it stores data. If it can't be supported safely, Reclaim shows it as detected but unsupported rather than guessing.
+
+***
 
 ## Under the hood
 
-The app is a thin SwiftUI shell over `ReclaimKit`, a Swift package that does all scanning, classification and cleanup. The engine is fully tested against fixture git repositories, including every refusal path: dirty trees, untracked files, unpushed commits, locked worktrees, races where a clean worktree becomes dirty between scan and delete.
+A thin SwiftUI app over `ReclaimKit`, a Swift package that owns scanning, classification, and cleanup. The engine is tested against fixture git repositories, including every refusal path and the race where a clean worktree becomes dirty between scan and delete.
 
 ```sh
-cd ReclaimKit
-swift test              # engine tests
-swift run reclaim-scan ~/dev --sizes   # read-only scan from the terminal
+cd ReclaimKit && swift test
 ```
-
-Storage locations and cleanup rules for every supported tool are documented with sources in [docs/RESEARCH.md](docs/RESEARCH.md). If a tool cannot be supported safely, Reclaim shows it as detected but unsupported instead of guessing.
 
 ## License
 
