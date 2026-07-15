@@ -5,19 +5,19 @@ import Foundation
 public struct CodexScanner: StorageScanner {
     public let name = "Codex"
 
-    /// A session updated within this window counts as active even without a live process match.
-    static let activeSessionWindow: TimeInterval = 30 * 60
-
     public init() {}
 
     public func scan(context: ScanContext) async throws -> [ScanItem] {
-        let root = context.home.appendingPathComponent(".codex")
+        // Codex honors $CODEX_HOME; mirror it before assuming ~/.codex.
+        let root = context.environment["CODEX_HOME"]
+            .map { URL(filePath: $0) } ?? context.home.appendingPathComponent(".codex")
         guard FileManager.default.directoryExists(root) else { return [] }
 
         let codexRunning = context.processes.commandLines.contains {
             $0.contains("codex") && ($0.contains("app-server") || $0.contains("codex exec") || $0.hasSuffix("codex"))
         }
         let threads = CodexThreadIndex.load(databasePath: root.appendingPathComponent("state_5.sqlite").path)
+        let sessionIndex = CodexSessionIndex.load(indexFile: root.appendingPathComponent("session_index.jsonl"))
         let inspector = WorktreeInspector(git: context.git)
         var items: [ScanItem] = []
 
@@ -37,8 +37,12 @@ public struct CodexScanner: StorageScanner {
             }
             for inner in candidates {
                 let thread = threads[inner.path] ?? threads[outer.path]
-                let sessionRecent = (thread?.updatedAt).map {
-                    Date.now.timeIntervalSince($0) < Self.activeSessionWindow
+                let session = CodexSessionIndex.threadID(forWorktree: inner).flatMap { sessionIndex[$0] }
+                // The two stores can disagree; the newer timestamp wins so a
+                // stale one never hides a live session.
+                let lastSessionUpdate = [session?.updatedAt, thread?.updatedAt].compactMap { $0 }.max()
+                let sessionRecent = lastSessionUpdate.map {
+                    Date.now.timeIntervalSince($0) < agentSessionActivityWindow
                 } ?? false
                 var item = try await inspector.scanItem(
                     at: inner,
@@ -47,17 +51,18 @@ public struct CodexScanner: StorageScanner {
                         ? inner.lastPathComponent
                         : "\(outer.lastPathComponent)/\(inner.lastPathComponent)",
                     hasActiveProcess: context.processes.referencesPath(inner.path),
-                    hasActiveSession: codexRunning && sessionRecent && thread?.archived == false
+                    // archived != true: a missing sqlite row must not cancel the
+                    // protection when the session index alone proved recency.
+                    hasActiveSession: codexRunning && sessionRecent && thread?.archived != true
                 )
-                if let thread {
-                    if let updated = thread.updatedAt, updated > (item.lastActivity ?? .distantPast) {
-                        item.lastActivity = updated
-                    }
-                    if thread.archived {
-                        item.reasons.append("The Codex session for this worktree is archived.")
-                    }
-                } else {
+                item.sessionTitle = session?.threadName
+                if let updated = lastSessionUpdate, updated > (item.lastActivity ?? .distantPast) {
+                    item.lastActivity = updated
+                }
+                if thread == nil && session == nil {
                     item.reasons.append("No Codex session references this worktree.")
+                } else if thread?.archived == true {
+                    item.reasons.append("The Codex session for this worktree is archived.")
                 }
                 // Codex wraps most worktrees in an id directory; clean it up too.
                 item.trashParentIfEmpty = inner != outer
@@ -65,12 +70,25 @@ public struct CodexScanner: StorageScanner {
             }
         }
 
-        // Regenerable data. Everything here is recreated or only useful for debugging.
-        let caches: [(relative: String, title: String, protectedWhileRunning: Bool, companionSuffixes: [String])] = [
-            ("logs_2.sqlite", "Codex telemetry log", true, ["-wal", "-shm"]),
-            ("sqlite", "Codex stale database snapshots", false, []),
-            ("cache", "Codex cache", false, []),
-            ("shell_snapshots", "Codex shell snapshots", false, []),
+        // Regenerable data plus user content worth surfacing. All resolved
+        // against the same root so CODEX_HOME has exactly one meaning.
+        struct Cache {
+            var relative: String
+            var title: String
+            var category: StorageCategory = .toolCache
+            var protectedWhileRunning = false
+            var companionSuffixes: [String] = []
+            var note: String? = nil
+        }
+        let caches: [Cache] = [
+            Cache(relative: "logs_2.sqlite", title: "Codex telemetry log",
+                  protectedWhileRunning: true, companionSuffixes: ["-wal", "-shm"]),
+            Cache(relative: "sqlite", title: "Codex stale database snapshots"),
+            Cache(relative: "cache", title: "Codex cache"),
+            Cache(relative: "shell_snapshots", title: "Codex shell snapshots"),
+            Cache(relative: "generated_images", title: "Codex generated images", category: .toolSessions,
+                  note: "Images you generated in Codex; not recoverable once deleted."),
+            Cache(relative: "archived_sessions", title: "Codex archived sessions", category: .toolSessions),
         ]
         for cache in caches {
             let url = root.appendingPathComponent(cache.relative)
@@ -79,12 +97,15 @@ public struct CodexScanner: StorageScanner {
                 path: url.path,
                 displayName: cache.title,
                 tool: .codex,
-                category: .toolCache,
+                category: cache.category,
                 lastActivity: latestModification(in: url, maxDepth: 0),
                 hasActiveProcess: codexRunning && cache.protectedWhileRunning,
                 companionPaths: cache.companionSuffixes.map { url.path + $0 }
             )
             (item.safety, item.reasons) = Classifier.classify(item)
+            if let note = cache.note {
+                item.reasons.append(note)
+            }
             items.append(item)
         }
 

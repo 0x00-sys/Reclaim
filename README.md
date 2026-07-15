@@ -33,10 +33,13 @@ open Reclaim.xcodeproj
 - Nothing is classified by file age alone, and nothing is deleted without your confirmation.
 - Deletion is Trash-first and re-verified at the moment of removal. If work appeared since the scan, the item is refused.
 - One-click clean of everything Safe, driven by your filters: category, tool, status, idle time.
+- Artifact-only cleaning: a worktree with unpushed work keeps its code while the node_modules or target folder inside it gets reclaimed. Only directories with zero git-tracked files qualify.
+- Transcript folders for projects you deleted are detected as orphans and become safe to clean; sessions for living projects stay protected.
+- Pushed your commits since the scan? Re-check flips the worktree to Safe without rescanning, and it happens automatically when you come back to the app.
 - A notch panel shows live scan and cleanup progress, with pixel-art sprites per tool.
 - 8-bit chime when it's done. Optional everything.
 
-**Scans:** Codex · Claude Code · Conductor · Cursor · git worktrees · node_modules · `.next`/`.nuxt`/`.turbo`/cargo target · npm · pnpm · Bun · Go · Playwright · Homebrew · pip · Gradle · CocoaPods · Xcode
+**Scans:** Codex · Claude Code · Conductor · Cursor · git worktrees · node_modules · `.next`/`.nuxt`/`.turbo`/cargo target · npm · pnpm · Bun · Go · Playwright · Homebrew · pip · Gradle · CocoaPods · Xcode · Ollama · Hugging Face · LM Studio · leftover installers in Downloads
 
 ***
 

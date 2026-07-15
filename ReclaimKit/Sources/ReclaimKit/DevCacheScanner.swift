@@ -37,15 +37,27 @@ public struct DevCacheScanner: StorageScanner {
         ]
 
         // Claude Code regenerable data
-        for name in ["cache", "image-cache", "paste-cache", "backups", "shell-snapshots", "debug"] {
+        for name in ["cache", "image-cache", "paste-cache", "backups", "shell-snapshots", "debug",
+                     "telemetry", "usage-data", "tasks"] {
             list.append(Entry(relativePath: ".claude/\(name)", tool: .claudeCode,
                               title: "Claude Code \(name)", category: .toolCache,
                               note: nil, processHint: "claude"))
         }
-        list.append(Entry(relativePath: ".claude/file-history", tool: .claudeCode,
-                          title: "Claude Code file-history", category: .toolCache,
-                          note: nil, processHint: "claude",
-                          caution: "Checkpoint snapshots used to rewind file edits; clearing removes the ability to restore past checkpoints."))
+        let claudeCautions: [(name: String, title: String, caution: String)] = [
+            ("file-history", "Claude Code file-history",
+             "Checkpoint snapshots used to rewind file edits; clearing removes the ability to restore past checkpoints."),
+            ("todos", "Claude Code todos",
+             "Task lists from past sessions; an interrupted session loses its resumable to-do state."),
+            ("plans", "Claude Code plans",
+             "Saved plan documents from plan-mode sessions; not regenerated."),
+            ("plugins", "Claude Code plugins cache",
+             "Installed plugins re-download on next use, but local plugin config may live here."),
+        ]
+        for entry in claudeCautions {
+            list.append(Entry(relativePath: ".claude/\(entry.name)", tool: .claudeCode,
+                              title: entry.title, category: .toolCache,
+                              note: nil, processHint: "claude", caution: entry.caution))
+        }
 
         // Cursor (Electron caches; paths are community-verified, not vendor-documented)
         let cursorNote = "Standard Electron cache location; not documented by Cursor itself."
@@ -83,11 +95,17 @@ public struct DevCacheScanner: StorageScanner {
                   category: .packageCache, note: nil, processHint: "gradle"),
             Entry(relativePath: "Library/Caches/CocoaPods", tool: .cocoapods, title: "CocoaPods cache",
                   category: .packageCache, note: nil, processHint: "pod"),
-            // Codex user content: never "safe", but worth surfacing.
-            Entry(relativePath: ".codex/generated_images", tool: .codex, title: "Codex generated images",
-                  category: .toolSessions, note: "Images you generated in Codex; not recoverable once deleted.", processHint: nil),
-            Entry(relativePath: ".codex/archived_sessions", tool: .codex, title: "Codex archived sessions",
-                  category: .toolSessions, note: nil, processHint: nil),
+            // Local AI model stores: multi-GB, re-downloaded on demand.
+            Entry(relativePath: ".ollama/models", tool: .ollama, title: "Ollama models",
+                  category: .modelCache,
+                  note: "`ollama pull` restores any model; `ollama rm <model>` removes a single one.",
+                  processHint: "ollama", activityDepth: 2),
+            Entry(relativePath: ".cache/huggingface", tool: .huggingFace, title: "Hugging Face cache",
+                  category: .modelCache,
+                  note: "Model and dataset downloads from the Hugging Face hub; re-fetched on next use.",
+                  processHint: nil, activityDepth: 2),
+            Entry(relativePath: ".lmstudio/models", tool: .lmStudio, title: "LM Studio models",
+                  category: .modelCache, note: nil, processHint: "LM Studio", activityDepth: 2),
         ]
         return list
     }()

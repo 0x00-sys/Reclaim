@@ -137,26 +137,65 @@ public final class AppModel {
     }
 
     private func measureSizes() async {
-        let unsized = items.filter { $0.sizeBytes == nil }.map(\.url)
-        let indexByPath = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.path, $0) })
-
-        // items can shrink while we await (cleaning is allowed mid-scan), so a
-        // snapshotted index is only a hint — validate it before writing through it.
-        func applySize(_ size: Int64?, forPath path: String) {
-            if let index = indexByPath[path], index < items.count, items[index].path == path {
-                items[index].sizeBytes = size
-            } else if let index = items.firstIndex(where: { $0.path == path }) {
-                items[index].sizeBytes = size
+        var hint = indexHint()
+        await measure(paths: items.filter { $0.sizeBytes == nil }.map(\.path)) { model, path, size in
+            if let index = model.itemIndex(of: path, hint: hint) {
+                model.items[index].sizeBytes = size
             }
         }
+        // Artifact sizes: one du per artifact dir, attributed to the owning
+        // worktree. Unmeasurable artifacts leave the total nil (unknown), never 0.
+        var artifactOwner: [String: String] = [:]
+        for item in items {
+            for artifact in item.artifactPaths ?? [] { artifactOwner[artifact] = item.path }
+        }
+        hint = indexHint()
+        await measure(paths: Array(artifactOwner.keys)) { model, path, size in
+            guard let owner = artifactOwner[path], let size,
+                  let index = model.itemIndex(of: owner, hint: hint)
+            else { return }
+            model.items[index].artifactBytes = (model.items[index].artifactBytes ?? 0) + size
+        }
+    }
+
+    /// The one artifact-total convention: unmeasurable artifacts leave the
+    /// total nil (unknown), never 0. measureSizes' accumulation follows it too.
+    private static func artifactTotal(paths: [String]) async -> Int64? {
+        var total: Int64?
+        for path in paths {
+            guard let size = try? await DirectorySizer.allocatedSize(of: URL(filePath: path)) else { continue }
+            total = (total ?? 0) + size
+        }
+        return total
+    }
+
+    private func indexHint() -> [String: Int] {
+        Dictionary(items.enumerated().map { ($1.path, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// items can shrink while measurement awaits, so the snapshotted hint is
+    /// validated before use and falls back to a linear search.
+    private func itemIndex(of path: String, hint: [String: Int]) -> Int? {
+        if let index = hint[path], index < items.count, items[index].path == path {
+            return index
+        }
+        return items.firstIndex { $0.path == path }
+    }
+
+    private func measure(
+        paths: [String],
+        apply: @escaping @MainActor (AppModel, String, Int64?) -> Void
+    ) async {
+        // items can shrink while we await (cleaning is allowed mid-scan), so
+        // every write re-resolves the item by path inside `apply`.
         await withTaskGroup(of: (String, Int64?).self) { group in
-            var iterator = unsized.makeIterator()
+            var iterator = paths.makeIterator()
             var running = 0
             func addNext(_ group: inout TaskGroup<(String, Int64?)>) {
-                guard let url = iterator.next() else { return }
+                guard let path = iterator.next() else { return }
                 running += 1
                 group.addTask {
-                    (url.path, try? await DirectorySizer.allocatedSize(of: url))
+                    (path, try? await DirectorySizer.allocatedSize(of: URL(filePath: path)))
                 }
             }
             for _ in 0..<4 { addNext(&group) }
@@ -164,10 +203,84 @@ public final class AppModel {
                 guard let (path, size) = await group.next() else { break }
                 running -= 1
                 if Task.isCancelled { group.cancelAll(); break }
-                applySize(size, forPath: path)
+                apply(self, path, size)
                 addNext(&group)
             }
         }
+    }
+
+    /// Re-inspect one worktree item and reclassify it in place, both directions:
+    /// a pushed-since-the-scan worktree flips to Safe without a full re-scan.
+    public func recheck(_ item: ScanItem, processes: ProcessSnapshot? = nil) async {
+        guard item.worktree != nil else { return }
+        let processes = if let processes { processes } else { await ProcessSnapshot.capture() }
+        guard let fresh = try? await WorktreeInspector().scanItem(
+            at: item.url,
+            tool: item.tool,
+            displayName: item.displayName,
+            hasActiveProcess: processes.referencesPath(item.path),
+            cautionNote: item.cautionNote
+        ) else { return }
+        guard let index = items.firstIndex(where: { $0.path == item.path }) else { return }
+        var updated = fresh
+        updated.adoptMeasurements(from: items[index])
+        (updated.safety, updated.reasons) = Classifier.classify(updated)
+        items[index] = updated
+        saveSnapshot()
+    }
+
+    private var staleRecheckRunning = false
+    private var lastStaleRecheck: Date?
+
+    /// Focus returned to the app: quietly refresh the worktrees whose verdict
+    /// might have improved while the user was away pushing/committing.
+    /// Debounced: rapid focus switches must not stack subprocess sweeps.
+    public func recheckStaleWorktrees(limit: Int = 12) async {
+        guard !isBusy, !staleRecheckRunning else { return }
+        if let last = lastStaleRecheck, Date.now.timeIntervalSince(last) < 60 { return }
+        staleRecheckRunning = true
+        defer { staleRecheckRunning = false }
+        lastStaleRecheck = .now
+        // One ps/lsof snapshot for the whole sweep, not one per item, and the
+        // independent per-worktree inspections run a few at a time.
+        let processes = await ProcessSnapshot.capture()
+        let stale = items.filter { $0.worktree != nil && $0.safety != .safe }.prefix(limit)
+        await withTaskGroup(of: Void.self) { group in
+            var iterator = stale.makeIterator()
+            var running = 0
+            func addNext(_ group: inout TaskGroup<Void>) {
+                guard let item = iterator.next() else { return }
+                running += 1
+                group.addTask { await self.recheck(item, processes: processes) }
+            }
+            for _ in 0..<4 { addNext(&group) }
+            while running > 0 {
+                guard await group.next() != nil else { break }
+                running -= 1
+                addNext(&group)
+            }
+        }
+    }
+
+    /// Trash only the regenerable build artifacts inside a worktree.
+    public func cleanArtifacts(of item: ScanItem) async {
+        guard !isCleaning else { return }
+        isCleaning = true
+        cleaningStatus = "Cleaning build artifacts…"
+        let results = await cleanupEngine.cleanArtifacts(in: item)
+        if results.contains(where: \.success) {
+            // Disk changed: re-inspect for a fresh verdict and artifact list,
+            // then re-measure instead of doing arithmetic on stale estimates.
+            await recheck(item)
+            if let index = items.firstIndex(where: { $0.path == item.path }) {
+                items[index].sizeBytes = try? await DirectorySizer.allocatedSize(of: item.url)
+                items[index].artifactBytes = await Self.artifactTotal(paths: items[index].artifactPaths ?? [])
+            }
+        }
+        cleanupResults = results
+        isCleaning = false
+        cleaningStatus = ""
+        saveSnapshot()
     }
 
     public func clean(_ selected: [ScanItem], force: Bool = false) async {

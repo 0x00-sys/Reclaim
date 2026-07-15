@@ -1,22 +1,30 @@
 import Foundation
 
+/// One product-level threshold for "an agent session touched this recently
+/// enough to count as active"; every agent scanner shares it.
+let agentSessionActivityWindow: TimeInterval = 30 * 60
+
 public struct ScanContext: Sendable {
     public var home: URL
     public var git: GitClient
     public var processes: ProcessSnapshot
     /// Directories the user wants scanned for repositories and node_modules.
     public var projectRoots: [URL]
+    /// Injected so env-honoring scanners (CODEX_HOME) stay fixture-testable.
+    public var environment: [String: String]
 
     public init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         git: GitClient = GitClient(),
         processes: ProcessSnapshot = ProcessSnapshot(commandLines: []),
-        projectRoots: [URL] = []
+        projectRoots: [URL] = [],
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.home = home
         self.git = git
         self.processes = processes
         self.projectRoots = projectRoots
+        self.environment = environment
     }
 }
 
@@ -35,6 +43,7 @@ public let defaultScanners: [(scanner: any StorageScanner, tool: Tool?)] = [
     (DevCacheScanner(), nil),
     (XcodeScanner(), .xcode),
     (ClaudeCodeScanner(), .claudeCode),
+    (InstallerScanner(), .installer),
 ]
 
 extension FileManager {

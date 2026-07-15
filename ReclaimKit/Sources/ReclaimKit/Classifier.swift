@@ -96,6 +96,10 @@ public enum Classifier {
             return (.review, ["Simulator data may include app containers you still use."])
         case .toolSessions:
             return (.review, ["Session history may hold context you want to keep; it is not needed for the tool to run."])
+        case .modelCache:
+            return (.safe, ["Downloaded models are fetched again on demand; only the next load pays the download."])
+        case .installers:
+            return (.review, ["Installer files are usually re-downloadable, but confirm the app is installed or still available first."])
         case .worktree:
             return (.unknown, ["Worktree state could not be inspected."])
         }

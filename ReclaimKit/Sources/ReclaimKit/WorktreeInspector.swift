@@ -73,6 +73,11 @@ public struct WorktreeInspector: Sendable {
         cautionNote: String? = nil
     ) async throws -> ScanItem {
         let state = try await inspect(url, registeredEntries: registeredEntries)
+        // Advertise only artifacts the artifact clean would actually accept:
+        // a git-tracked build/ or dist/ is source, not artifact.
+        let artifacts = await BuildArtifactLocator.candidates(in: url, git: git)
+            .filter { $0.tracked == false }
+            .map(\.url)
         var item = ScanItem(
             path: url.path,
             displayName: displayName ?? url.lastPathComponent,
@@ -82,7 +87,8 @@ public struct WorktreeInspector: Sendable {
             worktree: state,
             hasActiveProcess: hasActiveProcess,
             hasActiveSession: hasActiveSession,
-            cautionNote: cautionNote
+            cautionNote: cautionNote,
+            artifactPaths: artifacts.isEmpty ? nil : artifacts.map(\.path)
         )
         (item.safety, item.reasons) = Classifier.classify(item)
         return item

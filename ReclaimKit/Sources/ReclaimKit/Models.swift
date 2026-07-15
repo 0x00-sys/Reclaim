@@ -18,6 +18,10 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
     case deno = "Deno"
     case gradle = "Gradle"
     case cocoapods = "CocoaPods"
+    case ollama = "Ollama"
+    case huggingFace = "Hugging Face"
+    case lmStudio = "LM Studio"
+    case installer = "Installer"
 
     public var id: String { rawValue }
 }
@@ -33,6 +37,8 @@ public enum StorageCategory: String, Sendable, Codable, CaseIterable, Identifiab
     case simulators = "Simulators"
     case toolSessions = "Agent Sessions"
     case toolCache = "Tool Caches"
+    case modelCache = "AI Models"
+    case installers = "Installers"
 
     public var id: String { rawValue }
 }
@@ -122,6 +128,13 @@ public struct ScanItem: Sendable, Codable, Identifiable, Equatable {
     public var companionPaths: [String]
     /// Trash the parent directory too when it ends up empty (wrapper layouts).
     public var trashParentIfEmpty: Bool
+    /// Human-readable agent session title (e.g. the Codex thread name), when known.
+    public var sessionTitle: String?
+    /// Regenerable build-artifact directories inside a worktree (node_modules,
+    /// target, …), cleanable on their own even when the worktree is not.
+    public var artifactPaths: [String]?
+    /// Allocated size of artifactPaths, measured with the other sizes.
+    public var artifactBytes: Int64?
 
     public init(
         path: String,
@@ -137,7 +150,10 @@ public struct ScanItem: Sendable, Codable, Identifiable, Equatable {
         reasons: [String] = [],
         cautionNote: String? = nil,
         companionPaths: [String] = [],
-        trashParentIfEmpty: Bool = false
+        trashParentIfEmpty: Bool = false,
+        sessionTitle: String? = nil,
+        artifactPaths: [String]? = nil,
+        artifactBytes: Int64? = nil
     ) {
         self.path = path
         self.displayName = displayName
@@ -153,7 +169,24 @@ public struct ScanItem: Sendable, Codable, Identifiable, Equatable {
         self.cautionNote = cautionNote
         self.companionPaths = companionPaths
         self.trashParentIfEmpty = trashParentIfEmpty
+        self.sessionTitle = sessionTitle
+        self.artifactPaths = artifactPaths
+        self.artifactBytes = artifactBytes
     }
 
     public var url: URL { URL(filePath: path) }
+
+    /// After re-inspecting a worktree, carry over the fields inspection cannot
+    /// know: measured sizes and session metadata. Lives next to the field
+    /// declarations so a new field can't silently be wiped by a re-check.
+    /// The scan-time hasActiveSession flag is deliberately NOT carried — it
+    /// goes stale the moment the agent exits and is exactly what a re-check
+    /// must be able to clear; delete-time process/lsof guards still protect
+    /// genuinely live sessions.
+    public mutating func adoptMeasurements(from previous: ScanItem) {
+        sizeBytes = previous.sizeBytes
+        artifactBytes = artifactPaths == previous.artifactPaths ? previous.artifactBytes : nil
+        sessionTitle = previous.sessionTitle
+        trashParentIfEmpty = previous.trashParentIfEmpty
+    }
 }

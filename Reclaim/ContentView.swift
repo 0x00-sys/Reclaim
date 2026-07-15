@@ -482,6 +482,11 @@ struct ItemCard: View {
                         .lineLimit(1)
                     HStack(spacing: 5) {
                         Text(item.tool.rawValue)
+                        if let title = item.sessionTitle, !title.isEmpty {
+                            DotSeparator()
+                            Label(title, systemImage: "text.bubble")
+                                .lineLimit(1)
+                        }
                         if let branch = item.worktree?.branch {
                             DotSeparator()
                             Label(branch, systemImage: "arrow.triangle.branch")
@@ -677,9 +682,19 @@ struct HoverTextButton: View {
 }
 
 struct ItemDetail: View {
+    @Environment(AppModel.self) private var model
     let item: ScanItem
     let onClean: () -> Void
+    @State private var confirmingArtifactClean = false
+    @State private var rechecking = false
     private var cleanable: Bool { item.safety.isCleanable }
+
+    private var artifactSummary: String? {
+        guard let paths = item.artifactPaths, !paths.isEmpty else { return nil }
+        let names = Set(paths.map { URL(filePath: $0).lastPathComponent }).sorted().joined(separator: ", ")
+        let size = item.artifactBytes.map { " · \($0.formattedBytes)" } ?? ""
+        return "\(names)\(size)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -710,6 +725,32 @@ struct ItemDetail: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+            }
+
+            if let summary = artifactSummary {
+                HStack(spacing: 8) {
+                    Label {
+                        Text("Build artifacts inside: \(summary)")
+                            .font(.callout)
+                    } icon: {
+                        Image(systemName: "shippingbox")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Clean artifacts only") { confirmingArtifactClean = true }
+                        .buttonStyle(.glass)
+                        .pointerStyle(.link)
+                        .disabled(model.isBusy)
+                }
+                .confirmationDialog(
+                    "Trash the build artifacts in \(item.displayName)?",
+                    isPresented: $confirmingArtifactClean
+                ) {
+                    Button("Move Artifacts to Trash", role: .destructive) {
+                        Task { await model.cleanArtifacts(of: item) }
+                    }
+                } message: {
+                    Text("The code stays. Only regenerable directories with no git-tracked files are removed\(item.artifactBytes.map { ", freeing about \($0.formattedBytes)" } ?? "").")
                 }
             }
 
@@ -755,6 +796,23 @@ struct ItemDetail: View {
                 .buttonStyle(.glass)
                 .fixedSize()
                 .pointerStyle(.link)
+
+                if item.worktree != nil, item.worktree?.isPrunable != true {
+                    Button {
+                        rechecking = true
+                        Task {
+                            await model.recheck(item)
+                            rechecking = false
+                        }
+                    } label: {
+                        Label("Re-check", systemImage: "arrow.clockwise")
+                            .opacity(rechecking ? 0.4 : 1)
+                    }
+                    .buttonStyle(.glass)
+                    .pointerStyle(.link)
+                    .disabled(rechecking || model.isBusy)
+                    .help("Inspect this worktree again; a push since the scan flips it to Safe.")
+                }
 
                 Spacer()
 
@@ -847,6 +905,8 @@ extension StorageCategory {
         case .simulators: "ipad.and.iphone"
         case .toolSessions: "text.bubble"
         case .toolCache: "memorychip"
+        case .modelCache: "brain"
+        case .installers: "opticaldiscdrive"
         }
     }
 }

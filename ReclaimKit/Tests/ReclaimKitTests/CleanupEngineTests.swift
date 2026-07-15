@@ -75,20 +75,37 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: fixture.repo.path))
     }
 
-    @Test func refusesProtectedAndUnknownItems() async throws {
+    @Test func refusesProtectedItems() async throws {
         let fixture = try await GitFixture.make()
         defer { fixture.tearDown() }
         let worktree = try await fixture.addWorktree(name: "feature-protected")
         var item = try await scanItem(for: worktree)
 
         item.safety = .protected
-        var results = await CleanupEngine().clean(items: [item])
-        #expect(results[0].success == false)
-
-        item.safety = .unknown
-        results = await CleanupEngine().clean(items: [item])
+        let results = await CleanupEngine().clean(items: [item])
         #expect(results[0].success == false)
         #expect(FileManager.default.fileExists(atPath: worktree.path))
+    }
+
+    @Test func staleUnknownWorktreeVerdictYieldsToFreshInspection() async throws {
+        // A stored Unknown verdict no longer refuses outright: the delete-time
+        // re-inspection decides. Clean and pushed -> removable; non-worktree
+        // Unknown items are still refused without re-inspection.
+        let fixture = try await GitFixture.make()
+        defer { fixture.tearDown() }
+        let worktree = try await fixture.addWorktree(name: "feature-unknown")
+        var item = try await scanItem(for: worktree)
+
+        item.safety = .unknown
+        let results = await CleanupEngine().clean(items: [item])
+        #expect(results[0].success)
+        #expect(!FileManager.default.fileExists(atPath: worktree.path))
+
+        let plain = ScanItem(path: fixture.root.appendingPathComponent("plain").path,
+                             displayName: "plain", tool: .npm, category: .packageCache,
+                             safety: .unknown)
+        let plainResults = await CleanupEngine().clean(items: [plain])
+        #expect(plainResults[0].success == false)
     }
 
     @Test func refusesLockedWorktree() async throws {

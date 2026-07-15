@@ -61,24 +61,18 @@ public actor CleanupEngine {
         switch item.safety {
         case .protected:
             return failure("Refused: item is active or protected.")
-        case .unknown:
+        case .unknown where item.worktree == nil:
             return failure("Refused: could not determine whether this is safe to remove.")
-        case .safe, .review:
+        case .unknown, .safe, .review:
+            // A worktree's stored verdict may be stale (the user pushed since the
+            // scan); removeWorktree re-inspects and that fresh result decides.
             break
         }
         if item.category == .simulators {
             return failure("Simulator data must be removed with `xcrun simctl delete unavailable` or Xcode ▸ Settings ▸ Components.")
         }
-        if processes.referencesPath(item.path) {
-            return failure("Refused: a running process references this path.")
-        }
-        switch await Self.openFileCheck(path: item.path) {
-        case .inUse(let programs):
-            return failure("Refused: files inside are open in \(programs.joined(separator: ", ")).")
-        case .unknown:
-            return failure("Refused: could not verify that nothing has these files open. Try again in a moment.")
-        case .free:
-            break
+        if let refusal = await inUseRefusal(path: item.path, name: "this item", processes: processes) {
+            return failure(refusal)
         }
         if let worktree = item.worktree, worktree.isPrunable,
            !FileManager.default.fileExists(atPath: item.path),
@@ -127,6 +121,9 @@ public actor CleanupEngine {
         if !force {
             // These guard unpushed/uncommitted work and may be overridden by an
             // explicit, double-confirmed force clean. Deletion is still Trash-first.
+            if state.repositoryPath == nil {
+                return failure("Refused: the parent repository is missing, so this worktree's work cannot be verified as pushed.", canForce: true)
+            }
             if state.hasModifiedFiles {
                 return failure("Refused: the worktree now has uncommitted changes.", canForce: true)
             }
@@ -147,6 +144,64 @@ public actor CleanupEngine {
             result.message = "Moved to Trash and pruned from \(URL(filePath: repo).lastPathComponent)."
         }
         return result
+    }
+
+    /// Trash only the regenerable build-artifact directories inside a worktree,
+    /// keeping the code. Works on worktrees whose whole-item verdict is refused
+    /// (unpushed commits, dirty tree, even the main worktree): the artifacts are
+    /// not part of that work. Each candidate is re-located fresh, must contain
+    /// zero git-tracked files, and must have nothing open inside it.
+    public func cleanArtifacts(in item: ScanItem) async -> [CleanupResult] {
+        func failure(_ path: String, _ message: String) -> CleanupResult {
+            CleanupResult(path: path, displayName: URL(filePath: path).lastPathComponent,
+                          success: false, message: message)
+        }
+        guard WorktreeInspector.isWorktreeRoot(item.url) else {
+            return [failure(item.path, "Refused: not the root of a git worktree.")]
+        }
+        let processes = await ProcessSnapshot.capture()
+        var results: [CleanupResult] = []
+        for candidate in await BuildArtifactLocator.candidates(in: item.url, git: git) {
+            let artifact = candidate.url
+            // Belt and braces: never operate outside the worktree.
+            guard canonicalPath(artifact.path).hasPrefix(canonicalPath(item.path) + "/") else { continue }
+            let name = String(artifact.path.dropFirst(item.path.count + 1))
+            switch candidate.tracked {
+            case .some(false):
+                break
+            case .some(true):
+                results.append(failure(artifact.path, "Refused: \(name) contains files tracked by git."))
+                continue
+            case .none:
+                results.append(failure(artifact.path, "Refused: could not verify that \(name) is untracked."))
+                continue
+            }
+            if let refusal = await inUseRefusal(path: artifact.path, name: name, processes: processes) {
+                results.append(failure(artifact.path, refusal))
+                continue
+            }
+            results.append(trash(url: artifact, displayName: name, sizeBytes: nil))
+        }
+        if results.isEmpty {
+            results.append(failure(item.path, "No build artifacts found to clean."))
+        }
+        return results
+    }
+
+    /// The one "is anything using this path" policy, shared by whole-item and
+    /// artifact-only cleans. nil = free to remove; otherwise the refusal text.
+    private func inUseRefusal(path: String, name: String, processes: ProcessSnapshot) async -> String? {
+        if processes.referencesPath(path) {
+            return "Refused: a running process references \(name)."
+        }
+        switch await Self.openFileCheck(path: path) {
+        case .inUse(let programs):
+            return "Refused: files in \(name) are open in \(programs.joined(separator: ", "))."
+        case .unknown:
+            return "Refused: could not verify that nothing has \(name) open. Try again in a moment."
+        case .free:
+            return nil
+        }
     }
 
     enum OpenFileStatus: Sendable {
@@ -175,26 +230,34 @@ public actor CleanupEngine {
     }
 
     private func trash(_ item: ScanItem) -> CleanupResult {
+        trash(url: item.url, displayName: item.displayName, sizeBytes: item.sizeBytes,
+              companions: item.companionPaths, trashParentIfEmpty: item.trashParentIfEmpty)
+    }
+
+    private func trash(
+        url: URL, displayName: String, sizeBytes: Int64?,
+        companions: [String] = [], trashParentIfEmpty: Bool = false
+    ) -> CleanupResult {
         do {
-            try FileManager.default.trashItem(at: item.url, resultingItemURL: nil)
-            for companion in item.companionPaths where FileManager.default.fileExists(atPath: companion) {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            for companion in companions where FileManager.default.fileExists(atPath: companion) {
                 try? FileManager.default.trashItem(at: URL(filePath: companion), resultingItemURL: nil)
             }
-            if item.trashParentIfEmpty {
+            if trashParentIfEmpty {
                 // Hidden droppings like .DS_Store don't count as contents.
-                let parent = item.url.deletingLastPathComponent()
+                let parent = url.deletingLastPathComponent()
                 if FileManager.default.contentsOfDirectoryIfPresent(parent).isEmpty {
                     try? FileManager.default.trashItem(at: parent, resultingItemURL: nil)
                 }
             }
-            if FileManager.default.fileExists(atPath: item.path) {
-                return CleanupResult(path: item.path, displayName: item.displayName, success: false,
+            if FileManager.default.fileExists(atPath: url.path) {
+                return CleanupResult(path: url.path, displayName: displayName, success: false,
                                      message: "Trash operation reported success but the item still exists.")
             }
-            return CleanupResult(path: item.path, displayName: item.displayName, success: true,
-                                 message: "Moved to Trash.", freedBytes: item.sizeBytes)
+            return CleanupResult(path: url.path, displayName: displayName, success: true,
+                                 message: "Moved to Trash.", freedBytes: sizeBytes)
         } catch {
-            return CleanupResult(path: item.path, displayName: item.displayName, success: false,
+            return CleanupResult(path: url.path, displayName: displayName, success: false,
                                  message: "Could not move to Trash: \(error.localizedDescription)")
         }
     }

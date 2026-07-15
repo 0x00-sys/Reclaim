@@ -28,6 +28,12 @@ struct ReclaimApp: App {
                         ChipTune.playScanComplete()
                     }
                 }
+                // Coming back to the app usually follows committing or pushing
+                // somewhere else; quietly refresh the verdicts that could improve.
+                .onReceive(NotificationCenter.default.publisher(
+                    for: NSApplication.didBecomeActiveNotification)) { _ in
+                    Task { await model.recheckStaleWorktrees() }
+                }
         }
         .defaultSize(width: 1000, height: 720)
 

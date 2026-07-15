@@ -112,6 +112,16 @@ public struct GitClient: Sendable {
         return Date(timeIntervalSince1970: seconds)
     }
 
+    /// Tracked file paths (relative to the working tree) under any of the given
+    /// paths, in one subprocess. nil = could not determine (treat as "assume
+    /// tracked" for destructive callers).
+    public func trackedFiles(under paths: [String], workingTree: String) async throws -> [String]? {
+        guard !paths.isEmpty else { return [] }
+        let result = try await run(["ls-files", "--"] + paths, in: workingTree)
+        guard result.succeeded else { return nil }
+        return result.stdout.split(separator: "\n").map(String.init)
+    }
+
     public func pruneWorktrees(repository: String) async throws {
         _ = try await run(["worktree", "prune"], in: repository)
     }
