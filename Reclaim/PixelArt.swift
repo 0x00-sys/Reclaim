@@ -245,6 +245,7 @@ enum AppIconProvider {
         .codex: ["/Applications/Codex.app", "/Applications/ChatGPT.app"],
         .claudeCode: ["/Applications/Claude.app"],
         .conductor: ["/Applications/Conductor.app"],
+        .t3Code: ["/Applications/T3 Code.app", "/Applications/T3 Code (Nightly).app"],
         .xcode: ["/Applications/Xcode.app", "/Applications/Xcode-beta.app"],
     ]
 

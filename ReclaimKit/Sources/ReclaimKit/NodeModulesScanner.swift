@@ -1,7 +1,7 @@
 import Foundation
 
-/// Finds node_modules and per-project framework build caches (.next, .nuxt,
-/// cargo target, …) under the configured project roots.
+/// Finds node_modules and per-project build caches (.next, .nuxt, cargo and
+/// maven target, SwiftPM .build, Python virtualenvs, …) under the project roots.
 public struct NodeModulesScanner: StorageScanner {
     public let name = "node_modules"
     public var maxDepth: Int
@@ -19,11 +19,51 @@ public struct NodeModulesScanner: StorageScanner {
         ".parcel-cache": (.npm, "Parcel cache"),
         ".angular": (.npm, "Angular build cache"),
         ".output": (.npm, "Nitro build output"),
+        ".vite": (.npm, "Vite dependency cache"),
+        ".expo": (.npm, "Expo local cache"),
+        ".docusaurus": (.npm, "Docusaurus generated files"),
+        ".astro": (.npm, "Astro generated types"),
+        ".nx": (.npm, "Nx cache"),
+        ".mypy_cache": (.python, "mypy cache"),
+        ".pytest_cache": (.python, "pytest cache"),
+        ".ruff_cache": (.python, "Ruff cache"),
+        ".tox": (.python, "tox environments"),
+        ".nox": (.python, "nox environments"),
     ]
+
+    /// Names that are only build output next to a specific manifest; a bare
+    /// "target" or ".venv" elsewhere could be anything.
+    struct MarkedDirectory {
+        var name: String
+        var markers: [String]
+        var tool: Tool
+        var title: String
+        /// Demotes Safe to Review: rebuildable, but maybe not identically.
+        var caution: String? = nil
+    }
+
+    static let markedBuildDirectories: [MarkedDirectory] = [
+        MarkedDirectory(name: "target", markers: ["Cargo.toml"], tool: .rust, title: "Cargo target"),
+        MarkedDirectory(name: "target", markers: ["pom.xml"], tool: .maven, title: "Maven target"),
+        MarkedDirectory(name: ".build", markers: ["Package.swift"], tool: .xcode, title: "SwiftPM build"),
+        MarkedDirectory(name: ".gradle", markers: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+                        tool: .gradle, title: "Gradle project cache"),
+        MarkedDirectory(name: ".venv", markers: ["pyproject.toml", "requirements.txt", "setup.py", "uv.lock", "Pipfile"],
+                        tool: .python, title: "Python virtualenv",
+                        caution: "Recreated from the project's dependency files; packages installed into it by hand are not."),
+    ]
+
+    static func markedBuildDirectory(named name: String, in parent: URL) -> MarkedDirectory? {
+        markedBuildDirectories.first { entry in
+            entry.name == name && entry.markers.contains {
+                FileManager.default.fileExists(atPath: parent.appendingPathComponent($0).path)
+            }
+        }
+    }
 
     public func scan(context: ScanContext) async throws -> [ScanItem] {
         var nodeModules: [URL] = []
-        var buildCaches: [(URL, Tool, String)] = []
+        var buildCaches: [(URL, Tool, String, String?)] = []
         for root in context.projectRoots where FileManager.default.directoryExists(root) {
             try search(root, depth: 0, nodeModules: &nodeModules, buildCaches: &buildCaches)
         }
@@ -43,7 +83,7 @@ public struct NodeModulesScanner: StorageScanner {
             (item.safety, item.reasons) = Classifier.classify(item)
             items.append(item)
         }
-        for (url, tool, title) in buildCaches {
+        for (url, tool, title, caution) in buildCaches {
             try Task.checkCancellation()
             let project = url.deletingLastPathComponent()
             var item = ScanItem(
@@ -54,7 +94,8 @@ public struct NodeModulesScanner: StorageScanner {
                 // The cache's own mtime says when the project was last built or
                 // its dev server last ran — the staleness signal that matters.
                 lastActivity: latestModification(in: url, maxDepth: 0),
-                hasActiveProcess: context.processes.referencesPath(project.path)
+                hasActiveProcess: context.processes.referencesPath(project.path),
+                cautionNote: caution
             )
             (item.safety, item.reasons) = Classifier.classify(item)
             items.append(item)
@@ -65,7 +106,7 @@ public struct NodeModulesScanner: StorageScanner {
     private func search(
         _ url: URL, depth: Int,
         nodeModules: inout [URL],
-        buildCaches: inout [(URL, Tool, String)]
+        buildCaches: inout [(URL, Tool, String, String?)]
     ) throws {
         try Task.checkCancellation()
         for child in FileManager.default.contentsOfDirectoryIfPresent(url, includeHidden: true) {
@@ -74,10 +115,9 @@ public struct NodeModulesScanner: StorageScanner {
             if name == "node_modules" {
                 nodeModules.append(child)  // never descend into one
             } else if let match = Self.buildDirectories[name] {
-                buildCaches.append((child, match.tool, match.title))
-            } else if name == "target",
-                      FileManager.default.fileExists(atPath: url.appendingPathComponent("Cargo.toml").path) {
-                buildCaches.append((child, .rust, "Cargo target"))
+                buildCaches.append((child, match.tool, match.title, nil))
+            } else if let match = Self.markedBuildDirectory(named: name, in: url) {
+                buildCaches.append((child, match.tool, match.title, match.caution))
             } else if name.hasPrefix(".") {
                 // Hidden dirs are tool internals; .claude/worktrees is handled
                 // by the worktree scanner so its contents aren't double-counted.

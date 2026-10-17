@@ -6,7 +6,7 @@ Find your lost gigabytes. Reclaim is a macOS app that safely cleans the disk spa
 [![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black)](#install)
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](ReclaimKit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-40%20passing-4DE68A)](ReclaimKit/Tests)
+[![Tests](https://img.shields.io/badge/tests-80%20passing-4DE68A)](ReclaimKit/Tests)
 
 [![Reclaim banner](docs/banner.png)](docs/banner.png)
 
@@ -34,12 +34,14 @@ open Reclaim.xcodeproj
 - Deletion is Trash-first and re-verified at the moment of removal. If work appeared since the scan, the item is refused.
 - One-click clean of everything Safe, driven by your filters: category, tool, status, idle time.
 - Artifact-only cleaning: a worktree with unpushed work keeps its code while the node_modules or target folder inside it gets reclaimed. Only directories with zero git-tracked files qualify.
+- T3 Code worktrees are matched to their threads: a worktree whose thread you used in the last two weeks stays in Review, named after the thread, while ones whose threads are idle, archived or deleted can go.
+- Old toolchain versions (fnm, nvm, pyenv, rustup, Claude Code builds) are listed one by one; the default version is always protected.
 - Transcript folders for projects you deleted are detected as orphans and become safe to clean; sessions for living projects stay protected.
 - Pushed your commits since the scan? Re-check flips the worktree to Safe without rescanning, and it happens automatically when you come back to the app.
 - A notch panel shows live scan and cleanup progress, with pixel-art sprites per tool.
 - 8-bit chime when it's done. Optional everything.
 
-**Scans:** Codex · Claude Code · Conductor · Cursor · git worktrees · node_modules · `.next`/`.nuxt`/`.turbo`/cargo target · npm · pnpm · Bun · Go · Playwright · Homebrew · pip · Gradle · CocoaPods · Xcode · Ollama · Hugging Face · LM Studio · leftover installers in Downloads
+**Scans:** Codex · Claude Code · T3 Code · Conductor · Cursor · git worktrees · node_modules · `.next`/`.nuxt`/`.turbo`/`.vite`/cargo and maven target/SwiftPM `.build`/Python virtualenvs · npm · pnpm · Yarn · Corepack · Bun · Go · Cargo · uv · Playwright · Puppeteer · Prisma · Homebrew · pip · Gradle · CocoaPods · Xcode and SwiftUI previews · old Node/Python/Rust/Claude Code versions (fnm, nvm, pyenv, rustup) · Electron app update downloads · Ollama · Hugging Face · LM Studio · leftover installers in Downloads
 
 ***
 

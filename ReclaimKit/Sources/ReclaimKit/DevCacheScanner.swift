@@ -1,7 +1,7 @@
 import Foundation
 
 /// Regenerable caches from the wider development toolchain (Go, Bun, Homebrew,
-/// Playwright, npx, …) plus Codex user-content directories worth reviewing.
+/// Playwright, npx, Cargo, uv, …) plus Electron app updater downloads.
 public struct DevCacheScanner: StorageScanner {
     public let name = "Developer caches"
 
@@ -34,6 +34,18 @@ public struct DevCacheScanner: StorageScanner {
                   category: .packageCache,
                   note: "Deleting the whole store is safe but slows the next install; `pnpm store prune` removes only unreferenced packages.",
                   processHint: "pnpm", activityDepth: 1),
+            // pnpm honors XDG_DATA_HOME; installs set up that way keep the store here.
+            Entry(relativePath: ".local/share/pnpm/store", tool: .pnpm, title: "pnpm content-addressed store (XDG)",
+                  category: .packageCache,
+                  note: "`pnpm store prune` removes only unreferenced packages.",
+                  processHint: "pnpm", activityDepth: 1),
+            Entry(relativePath: "Library/Caches/Yarn", tool: .yarn, title: "Yarn cache",
+                  category: .packageCache, note: "`yarn cache clean` is the official way.", processHint: "yarn", activityDepth: 1),
+            Entry(relativePath: ".yarn/berry/cache", tool: .yarn, title: "Yarn Berry global cache",
+                  category: .packageCache, note: nil, processHint: "yarn", activityDepth: 1),
+            Entry(relativePath: ".cache/node/corepack", tool: .node, title: "Corepack package-manager downloads",
+                  category: .packageCache, note: "Corepack re-downloads the pinned pnpm/yarn version on next use.",
+                  processHint: "corepack", activityDepth: 1),
         ]
 
         // Claude Code regenerable data
@@ -95,6 +107,30 @@ public struct DevCacheScanner: StorageScanner {
                   category: .packageCache, note: nil, processHint: "gradle"),
             Entry(relativePath: "Library/Caches/CocoaPods", tool: .cocoapods, title: "CocoaPods cache",
                   category: .packageCache, note: nil, processHint: "pod"),
+            Entry(relativePath: ".cargo/registry", tool: .rust, title: "Cargo registry cache",
+                  category: .packageCache, note: "Crate downloads and their unpacked sources; cargo fetches them again on the next build.",
+                  processHint: "cargo", daemonHints: ["rust-analyzer"], activityDepth: 1),
+            Entry(relativePath: ".cargo/git", tool: .rust, title: "Cargo git checkouts",
+                  category: .packageCache, note: "Git dependencies; cargo re-clones them on the next build.",
+                  processHint: "cargo", daemonHints: ["rust-analyzer"], activityDepth: 1),
+            Entry(relativePath: ".cache/uv", tool: .python, title: "uv cache",
+                  category: .packageCache, note: "`uv cache clean` is the official way; `uv cache prune` keeps what is still referenced.",
+                  processHint: "uv", activityDepth: 1),
+            Entry(relativePath: ".cache/pre-commit", tool: .python, title: "pre-commit hook environments",
+                  category: .packageCache, note: "`pre-commit clean` is the official way; hooks reinstall on the next commit.",
+                  processHint: "pre-commit"),
+            Entry(relativePath: ".cache/puppeteer", tool: .puppeteer, title: "Puppeteer browsers",
+                  category: .toolCache, note: "Chrome for Testing builds; `npx puppeteer browsers install` restores them.",
+                  processHint: nil),
+            Entry(relativePath: ".cache/chrome-devtools-mcp", tool: .puppeteer, title: "Chrome DevTools MCP browser profile",
+                  category: .toolCache, note: nil, processHint: nil,
+                  caution: "Browser profile of the chrome-devtools-mcp server; clearing it signs that browser out of every site."),
+            Entry(relativePath: ".cache/prisma", tool: .prisma, title: "Prisma engines",
+                  category: .toolCache, note: "Query and schema engines; Prisma downloads them again on generate.",
+                  processHint: "prisma"),
+            Entry(relativePath: ".cache/codex-runtimes", tool: .codex, title: "Codex runtimes cache",
+                  category: .toolCache, note: "Runtime downloads in the XDG cache directory; Codex fetches them again when needed.",
+                  processHint: "Codex"),
             // Local AI model stores: multi-GB, re-downloaded on demand.
             Entry(relativePath: ".ollama/models", tool: .ollama, title: "Ollama models",
                   category: .modelCache,
@@ -134,6 +170,30 @@ public struct DevCacheScanner: StorageScanner {
             }
             items.append(item)
         }
+        items += updaterCaches(context: context)
         return items
+    }
+
+    /// electron-updater (used by most Electron dev tools) stages downloaded
+    /// installers in ~/Library/Caches/<app>-updater; the running app fetches a
+    /// fresh one when the next update ships.
+    func updaterCaches(context: ScanContext) -> [ScanItem] {
+        let caches = context.home.appendingPathComponent("Library/Caches")
+        return FileManager.default.contentsOfDirectoryIfPresent(caches)
+            .filter { $0.lastPathComponent.hasSuffix("-updater") && FileManager.default.directoryExists($0) }
+            .filter { !FileManager.default.contentsOfDirectoryIfPresent($0, includeHidden: true).isEmpty }
+            .map { url in
+                let app = String(url.lastPathComponent.dropLast("-updater".count))
+                var item = ScanItem(
+                    path: url.path,
+                    displayName: "\(app) update downloads",
+                    tool: app.lowercased().hasPrefix("t3code") ? .t3Code : .appUpdater,
+                    category: .toolCache,
+                    lastActivity: latestModification(in: url, maxDepth: 1)
+                )
+                (item.safety, item.reasons) = Classifier.classify(item)
+                item.reasons.append("Installers staged by electron-updater; an in-progress download is protected by the open-files check.")
+                return item
+            }
     }
 }
