@@ -907,6 +907,7 @@ extension StorageCategory {
         case .toolCache: "memorychip"
         case .modelCache: "brain"
         case .installers: "opticaldiscdrive"
+        case .toolchains: "square.stack.3d.up"
         }
     }
 }

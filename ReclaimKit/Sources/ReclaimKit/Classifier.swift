@@ -100,6 +100,8 @@ public enum Classifier {
             return (.safe, ["Downloaded models are fetched again on demand; only the next load pays the download."])
         case .installers:
             return (.review, ["Installer files are usually re-downloadable, but confirm the app is installed or still available first."])
+        case .toolchains:
+            return (.review, ["An installed toolchain version; anything still pinned to it needs a reinstall through its version manager."])
         case .worktree:
             return (.unknown, ["Worktree state could not be inspected."])
         }

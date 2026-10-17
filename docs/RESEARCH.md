@@ -27,6 +27,15 @@ claims resting only on community sources or local observation of one machine.
 - Archiving deletes the workspace directory (weakly verified); archived workspaces restorable including chat.
 - Deep link: `conductor://prompt=<encoded>&path=<repo>` — flat key=value form, no host ([docs](https://www.conductor.build/docs/reference/deep-links)).
 
+## T3 Code
+
+- Base directory is `$T3CODE_HOME`, default `~/.t3`. Worktrees live at `worktrees/<project>/<name>`, state in `userdata/` (`dev/` for development builds) ([source: `deriveServerPaths`](https://github.com/pingdotgg/t3code/blob/main/apps/server/src/config.ts)). Some worktrees sit directly at `worktrees/<name>` (local observation).
+- Thread state: `userdata/statev2.sqlite` on current builds, `state.sqlite` on older ones. `orchestration_v2_projection_threads.payload_json` carries `worktreePath` and `lastVisitedAt`; `archived_at`/`deleted_at` are columns. The legacy `projection_threads` table has a `worktree_path` column and is kept, stale, inside statev2 after import, so v2 rows win per thread id (local observation of the schema).
+- Users rarely archive threads, so "not archived" protects too much. Reclaim demotes a worktree to Review only when an open thread was visited or messaged in the last 14 days; `updated_at` moves on background bookkeeping and is only a fallback.
+- `scratch/<name>` holds the working folder of project-less threads; whatever the agent produced lives there, so it is Review-only.
+- `state.sqlite` next to a newer `statev2.sqlite`, untouched for a week, is the pre-migration database: Review with a downgrade caution, never Safe.
+- `~/Library/Caches/t3code-updater` is electron-updater's staging folder, like every `~/Library/Caches/<app>-updater`.
+
 ## Cursor
 
 - Official guidance for disk space is limited to removing extensions and "Clear Editor History".
@@ -51,3 +60,21 @@ claims resting only on community sources or local observation of one machine.
 - Archives contain the only copy of each build's dSYMs — Apple says retain them ([docs](https://developer.apple.com/documentation/xcode/building-your-app-to-include-debugging-information)). Review-only.
 - DeviceSupport re-downloads on next device connection (UNVERIFIED, community).
 - Simulator devices: never `rm`; use `xcrun simctl delete unavailable`, `simctl runtime delete --notUsedSinceDays N`, or Xcode ▸ Settings ▸ Components ([Apple forums, DTS](https://developer.apple.com/forums/thread/758703)).
+- SwiftUI preview devices live in `~/Library/Developer/Xcode/UserData/Previews`, a separate simctl device set: `xcrun simctl --set previews delete all`.
+
+## Version managers
+
+- fnm: `node-versions/<v>` under `$FNM_DIR` (default `~/.local/share/fnm`); `aliases/default` is a symlink chain ending in the default version ([fnm](https://github.com/Schniz/fnm/blob/master/docs/configuration.md)).
+- nvm: `versions/node/<v>` under `$NVM_DIR`; `alias/default` holds a version spec, which can be symbolic (`lts/*`). Unresolvable specs protect the newest install.
+- pyenv: `versions/<v>` under `$PYENV_ROOT`; the global `version` file lists active versions ([pyenv](https://github.com/pyenv/pyenv#understanding-python-version-selection)).
+- rustup: `toolchains/<name>` under `$RUSTUP_HOME`; `settings.toml` holds `default_toolchain` and per-directory `[overrides]` ([rustup](https://rust-lang.github.io/rustup/overrides.html)).
+- Claude Code native installs keep builds at `~/.local/share/claude/versions/<semver>`; `~/.local/bin/claude` links the active one (local observation).
+- Whatever the source, the default version is never offered, and a manager with a single install is skipped.
+
+## Other caches
+
+- Cargo: `~/.cargo/registry` and `~/.cargo/git` are download caches, refetched on build ([Cargo book](https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci)).
+- uv: `~/.cache/uv`, `uv cache clean` ([uv docs](https://docs.astral.sh/uv/concepts/cache/)). pre-commit: `~/.cache/pre-commit`, `pre-commit clean`.
+- Puppeteer browsers: `~/.cache/puppeteer` ([docs](https://pptr.dev/guides/configuration)). chrome-devtools-mcp keeps a browser profile in `~/.cache/chrome-devtools-mcp`; clearing signs it out, so it is Review.
+- Corepack downloads: `~/.cache/node/corepack`. Prisma engines: `~/.cache/prisma`.
+- Project build output detected only next to its manifest: `target` (Cargo.toml, pom.xml), `.build` (Package.swift), `.gradle` (Gradle build files), `.venv` (Python dependency files; Review because hand-installed packages are not recreated).

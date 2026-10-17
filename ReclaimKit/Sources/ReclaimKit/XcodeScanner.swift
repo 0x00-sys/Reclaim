@@ -1,6 +1,6 @@
 import Foundation
 
-/// DerivedData, archives, device support, and simulator caches.
+/// DerivedData, archives, device support, simulator and SwiftUI preview devices.
 public struct XcodeScanner: StorageScanner {
     public let name = "Xcode"
 
@@ -48,6 +48,8 @@ public struct XcodeScanner: StorageScanner {
             ("Xcode/watchOS DeviceSupport", .deviceSupport, "watchOS device support"),
             ("CoreSimulator/Caches", .toolCache, "Simulator caches"),
             ("CoreSimulator/Devices", .simulators, "Simulator devices"),
+            // SwiftUI preview devices live in their own simctl device set.
+            ("Xcode/UserData/Previews", .simulators, "SwiftUI preview simulators"),
         ]
         for (relative, category, title) in simpleLocations {
             let url = developer.appendingPathComponent(relative)
@@ -61,6 +63,9 @@ public struct XcodeScanner: StorageScanner {
                 hasActiveProcess: category == .simulators && context.processes.hasProcess(named: "Simulator")
             )
             (item.safety, item.reasons) = Classifier.classify(item)
+            if relative == "Xcode/UserData/Previews" {
+                item.reasons.append("Remove with `xcrun simctl --set previews delete all`; Xcode recreates them on the next preview.")
+            }
             items.append(item)
         }
         return items

@@ -8,14 +8,30 @@ public enum BuildArtifactLocator {
     /// Marker file at the worktree root -> artifact directory names to hunt for.
     /// Framework caches come from NodeModulesScanner's table so the global scan
     /// and the per-worktree artifact clean never disagree about what counts.
-    static let markers: [(file: String, artifacts: [String])] = [
-        ("Cargo.toml", ["target"]),
-        ("go.mod", ["vendor"]),
-        ("package.json", ["node_modules", "dist", "build", ".cache"] + NodeModulesScanner.buildDirectories.keys.sorted()),
-        ("pyproject.toml", [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"]),
-        ("setup.py", [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"]),
-        ("requirements.txt", [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"]),
-    ]
+    static let markers: [(file: String, artifacts: [String])] = {
+        let python = [".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".tox", ".nox"]
+        let gradle = [".gradle", "build"]
+        return [
+            ("Cargo.toml", ["target"]),
+            ("go.mod", ["vendor"]),
+            ("package.json", ["node_modules", "dist", "build", ".cache", "coverage", "storybook-static"]
+                + NodeModulesScanner.buildDirectories.keys.sorted()),
+            ("pyproject.toml", python),
+            ("setup.py", python),
+            ("requirements.txt", python),
+            ("uv.lock", python),
+            ("Pipfile", python),
+            ("Package.swift", [".build"]),
+            ("pom.xml", ["target"]),
+            ("build.gradle", gradle),
+            ("build.gradle.kts", gradle),
+            ("settings.gradle", gradle),
+            ("settings.gradle.kts", gradle),
+            ("pubspec.yaml", [".dart_tool", "build"]),
+            ("mix.exs", ["_build", "deps"]),
+            ("build.zig", [".zig-cache", "zig-cache", "zig-out"]),
+        ]
+    }()
     /// No marker matched: cast a wide net; the cleanup-time guard rejects
     /// anything containing tracked files.
     static let fallbackArtifacts = ["target", "node_modules", ".venv", "__pycache__", "build", "dist"]

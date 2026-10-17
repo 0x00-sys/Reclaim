@@ -37,11 +37,13 @@ public protocol StorageScanner: Sendable {
 /// the notch sprite while that scanner runs.
 public let defaultScanners: [(scanner: any StorageScanner, tool: Tool?)] = [
     (CodexScanner(), .codex),
+    (T3CodeScanner(), .t3Code),
     (ConductorScanner(), .conductor),
     (RepoWorktreeScanner(), .git),
     (NodeModulesScanner(), .npm),
     (DevCacheScanner(), nil),
     (XcodeScanner(), .xcode),
+    (ToolchainScanner(), nil),
     (ClaudeCodeScanner(), .claudeCode),
     (InstallerScanner(), .installer),
 ]

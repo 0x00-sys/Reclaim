@@ -8,6 +8,7 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
     case codex = "Codex"
     case claudeCode = "Claude Code"
     case conductor = "Conductor"
+    case t3Code = "T3 Code"
     case cursor = "Cursor"
     case go = "Go"
     case rust = "Rust"
@@ -22,6 +23,13 @@ public enum Tool: String, Sendable, Codable, CaseIterable, Identifiable {
     case huggingFace = "Hugging Face"
     case lmStudio = "LM Studio"
     case installer = "Installer"
+    case node = "Node.js"
+    case python = "Python"
+    case maven = "Maven"
+    case puppeteer = "Puppeteer"
+    case prisma = "Prisma"
+    case yarn = "Yarn"
+    case appUpdater = "App updaters"
 
     public var id: String { rawValue }
 }
@@ -39,6 +47,7 @@ public enum StorageCategory: String, Sendable, Codable, CaseIterable, Identifiab
     case toolCache = "Tool Caches"
     case modelCache = "AI Models"
     case installers = "Installers"
+    case toolchains = "Toolchains"
 
     public var id: String { rawValue }
 }
