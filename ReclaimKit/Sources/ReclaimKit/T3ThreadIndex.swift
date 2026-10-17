@@ -65,8 +65,8 @@ public enum T3ThreadIndex {
         [
             """
             SELECT t.thread_id, json_extract(t.payload_json, '$.worktreePath'), t.title,
-                   NULLIF(max(coalesce(json_extract(t.payload_json, '$.lastVisitedAt'), ''),
-                              coalesce(m.last_user, '')), ''),
+                   coalesce(NULLIF(max(coalesce(json_extract(t.payload_json, '$.lastVisitedAt'), ''),
+                                       coalesce(m.last_user, '')), ''), t.updated_at),
                    t.archived_at IS NULL AND t.deleted_at IS NULL
             FROM orchestration_v2_projection_threads t
             LEFT JOIN (SELECT thread_id, max(created_at) AS last_user

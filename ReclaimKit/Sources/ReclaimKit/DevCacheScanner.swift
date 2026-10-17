@@ -130,7 +130,7 @@ public struct DevCacheScanner: StorageScanner {
                   processHint: "prisma"),
             Entry(relativePath: ".cache/codex-runtimes", tool: .codex, title: "Codex runtimes cache",
                   category: .toolCache, note: "Runtime downloads in the XDG cache directory; Codex fetches them again when needed.",
-                  processHint: "codex"),
+                  processHint: "Codex"),
             // Local AI model stores: multi-GB, re-downloaded on demand.
             Entry(relativePath: ".ollama/models", tool: .ollama, title: "Ollama models",
                   category: .modelCache,
